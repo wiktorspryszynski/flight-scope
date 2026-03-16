@@ -7,9 +7,12 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     env_file:
-      - .env  # <- pobiera zmienne środowiskowe
+      - .env
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - postgres
       - redis
@@ -20,6 +23,10 @@ services:
       dockerfile: frontend/Dockerfile
     ports:
       - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host
     depends_on:
       - backend
 
