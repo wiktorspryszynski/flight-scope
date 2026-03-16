@@ -1,0 +1,78 @@
+# -------------------
+# Python (backend + ML)
+# -------------------
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env
+env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Pytest cache
+.pytest_cache/
+
+# mypy cache
+.mypy_cache/
+
+# VSCode / IDE
+.vscode/
+.idea/
+
+# -------------------
+# Node / React (frontend)
+# -------------------
+# Node modules
+node_modules/
+
+# Vite build
+dist/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# VSCode / IDE
+.vscode/
+.idea/
+
+# -------------------
+# Data / ML
+# -------------------
+# Saved models, large datasets
+ml/saved_models/
+data/
+*.h5
+*.pkl
+*.joblib
+*.csv
+*.sqlite3
+
+# -------------------
+# Docker
+# -------------------
+# Ignore local Docker configs if needed
+docker-compose.override.yml
+
+# -------------------
+# Misc
+# -------------------
+.DS_Store
+*.swp
