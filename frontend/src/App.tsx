@@ -1,73 +1,83 @@
 import './App.css'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import FlightsMap from './modules/FlightsMap'
+
+type FlightPosition = {
+  id: string
+  callsign: string
+  longitude: number
+  latitude: number
+}
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY
 
-const getFlightsWebSocketUrl = (apiBaseUrl: string) => {
-  const url = new URL(apiBaseUrl)
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  url.pathname = '/ws/flights'
-  url.search = ''
-  return url.toString()
-}
-
 function App() {
+  const [flights, setFlights] = useState<FlightPosition[]>([])
+
   useEffect(() => {
     let isEffectActive = true
-    const wsUrl = getFlightsWebSocketUrl(API_BASE_URL)
-    console.log('[Flights WS] connecting to:', wsUrl)
-    const socket = new WebSocket(wsUrl)
 
-    socket.onopen = () => {
-      console.log('[Flights WS] connected')
-      if (!isEffectActive) {
-        socket.close()
-      }
-    }
+    const loadFlightsOnce = async () => {
+      const endpointUrl = `${API_BASE_URL}/flights/live`
+      console.log('[Flights API] fetching once from:', endpointUrl)
 
-    socket.onmessage = (event) => {
-      if (!isEffectActive) {
-        console.log('[Flights WS] received message after cleanup, ignoring')
-        return
-      }
-      console.log('[Flights WS] raw message:', event.data)
+      try {
+        const response = await fetch(endpointUrl)
 
-      if (typeof event.data === 'string') {
-        try {
-          const parsed = JSON.parse(event.data)
-          console.log('[Flights WS] parsed payload:', parsed)
-          if (Array.isArray(parsed)) {
-            console.log('[Flights WS] flights count:', parsed.length)
-          }
-        } catch {
-          console.log('[Flights WS] message is not JSON')
+        if (!response.ok) {
+          console.error('[Flights API] request failed:', response.status, response.statusText)
+          return
         }
+
+        const parsed = await response.json()
+        console.log('[Flights API] raw payload:', parsed)
+
+        if (Array.isArray(parsed)) {
+          const normalizedFlights: FlightPosition[] = parsed
+            .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+            .map((item, index) => {
+              const longitude = Number(item.longitude)
+              const latitude = Number(item.latitude)
+
+              return {
+                id: String(item.icao24 ?? `flight-${index}`),
+                callsign: String(item.callsign ?? ''),
+                longitude,
+                latitude,
+              }
+            })
+            .filter(
+              (flight) =>
+                Number.isFinite(flight.longitude) &&
+                Number.isFinite(flight.latitude) &&
+                Math.abs(flight.longitude) <= 180 &&
+                Math.abs(flight.latitude) <= 90,
+            )
+
+          if (!isEffectActive) {
+            return
+          }
+
+          setFlights(normalizedFlights)
+          console.log('[Flights API] flights count:', normalizedFlights.length)
+          console.table(normalizedFlights.slice(0, 10))
+        }
+      } catch (error) {
+        console.error('[Flights API] error while fetching flights:', error)
       }
     }
 
-    socket.onerror = (event) => {
-      console.error('[Flights WS] error event:', event)
-    }
-
-    socket.onclose = (event) => {
-      console.log('[Flights WS] closed:', {
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean,
-      })
-    }
+    void loadFlightsOnce()
 
     return () => {
       isEffectActive = false
-      console.log('[Flights WS] cleanup, readyState:', socket.readyState)
-      // In React StrictMode dev cycle, avoid closing while still connecting.
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.close()
-      }
     }
   }, [])
+
+  useEffect(() => {
+    console.log('[Flights API] state updated, flights stored locally:', flights.length)
+  }, [flights])
 
   if (!MAPTILER_KEY) {
     return null

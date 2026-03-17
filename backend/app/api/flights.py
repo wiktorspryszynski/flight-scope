@@ -4,7 +4,6 @@ from ..services.opensky import get_live_flights_raw
 
 router = APIRouter()
 
-
 def build_live_flights_payload() -> list[Flight]:
     states = get_live_flights_raw()
 

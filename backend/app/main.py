@@ -1,5 +1,5 @@
 import asyncio
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Query, WebSocket
 from fastapi import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from .api.flights import router as flights_router
@@ -17,12 +17,16 @@ app.add_middleware(
 )
 
 @app.websocket("/ws/flights")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    interval_ms: int = Query(default=10_000, ge=100),
+):
     await websocket.accept()
+    interval_sec = interval_ms / 1000
     try:
         while True:
             payload = build_live_flights_payload()
             await websocket.send_json([flight.model_dump() for flight in payload])
-            await asyncio.sleep(5)
+            await asyncio.sleep(interval_sec)
     except WebSocketDisconnect:
         return
