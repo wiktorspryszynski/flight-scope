@@ -34,9 +34,31 @@
   height: 100%;
   min-height: 0;
   min-height: 420px;
-  border-radius: 14px;
+  /* border-radius: 14px;
+  border: 1px solid var(--border); */
   overflow: hidden;
-  border: 1px solid var(--border);
+  position: relative;
+}
+
+.flight-marker {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.75);
+}
+
+.flight-counter {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
 }
 
 @media (max-width: 900px) {
@@ -58,5 +80,11 @@
   .flight-map-wrapper {
     min-height: 300px;
     border-radius: 10px;
+  }
+
+  .flight-counter {
+    top: 8px;
+    left: 8px;
+    font-size: 12px;
   }
 }
