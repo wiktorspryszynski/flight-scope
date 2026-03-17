@@ -38,6 +38,9 @@ function App() {
         try {
           const parsed = JSON.parse(event.data)
           console.log('[Flights WS] parsed payload:', parsed)
+          if (Array.isArray(parsed)) {
+            console.log('[Flights WS] flights count:', parsed.length)
+          }
         } catch {
           console.log('[Flights WS] message is not JSON')
         }
