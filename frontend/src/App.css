@@ -16,17 +16,59 @@
   min-height: 0;
 }
 
-.error-div {
+.error-status {
   width: 100%;
-  min-height: 220px;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  border: 1px solid #ef4444;
-  border-radius: 14px;
-  background: #fee2e2;
-  color: #991b1b;
-  font-weight: 600;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 28px;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  color: #ffffff;
+  text-align: center;
+}
+
+.error-status__label {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.error-status__title {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.1;
+  color: #ffffff;
+}
+
+.error-status__code {
+  margin: 4px 0 0;
+  max-width: 72ch;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: #ffffff;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.error-status__code code {
+  display: block;
+  text-align: center;
+  background: inherit;
+  color: inherit;
+  font-family: Consolas, 'Courier New', monospace;
 }
 
 .flight-map-wrapper {
@@ -61,6 +103,10 @@
   line-height: 1;
 }
 
+.maplibregl-ctrl-attrib-button:focus, .maplibregl-ctrl-group button:focus {
+  box-shadow: none !important;
+}
+
 @media (max-width: 900px) {
   .app-header {
     padding: 14px 14px 10px;
@@ -70,11 +116,18 @@
     padding: 0 14px 14px;
   }
 
-  .error-div {
-    min-height: 160px;
-    padding: 16px;
+  .error-status {
+    min-height: 200px;
+    padding: 18px;
+    border-radius: 12px;
+  }
+
+  .error-status__title {
+    font-size: 24px;
+  }
+
+  .error-status__code {
     font-size: 14px;
-    text-align: center;
   }
 
   .flight-map-wrapper {

@@ -1,6 +1,7 @@
 import './App.css'
 import { useEffect, useState } from 'react'
 import FlightsMap from './modules/FlightsMap'
+import ErrorStatus from './modules/ErrorStatus'
 
 type FlightPosition = {
   id: string
@@ -14,6 +15,7 @@ const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY
 
 function App() {
   const [flights, setFlights] = useState<FlightPosition[]>([])
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let isEffectActive = true
@@ -21,12 +23,14 @@ function App() {
     const loadFlightsOnce = async () => {
       const endpointUrl = `${API_BASE_URL}/flights/live`
       console.log('[Flights API] fetching once from:', endpointUrl)
+      setError(null)
 
       try {
         const response = await fetch(endpointUrl)
 
         if (!response.ok) {
           console.error('[Flights API] request failed:', response.status, response.statusText)
+          setError(`Failed to fetch flights (${response.status} ${response.statusText})`)
           return
         }
 
@@ -62,9 +66,13 @@ function App() {
           setFlights(normalizedFlights)
           console.log('[Flights API] flights count:', normalizedFlights.length)
           console.table(normalizedFlights.slice(0, 10))
+        } else {
+          setError('Unexpected flights API response format')
         }
       } catch (error) {
-        console.error('[Flights API] error while fetching flights:', error)
+        const errorString = `[Flights API] error while fetching flights: ${String(error)}`
+        console.error(errorString)
+        setError(errorString)
       }
     }
 
@@ -80,10 +88,14 @@ function App() {
   }, [flights])
 
   if (!MAPTILER_KEY) {
-    return null
+    setError("MapTiler API key is missing. Please set VITE_MAPTILER_KEY in your environment variables.")
   }
 
-  return <FlightsMap maptilerKey={MAPTILER_KEY} flights={[]} />
+  if (error) {
+    return <ErrorStatus error={error} />
+  }
+
+  return <FlightsMap maptilerKey={MAPTILER_KEY} flights={flights} />
 }
 
 export default App
