@@ -68,9 +68,9 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         initialViewState={{ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM }}
         onLoad={() => syncProjectionWithZoom(INITIAL_ZOOM)}
         onMoveEnd={(event) => syncProjectionWithZoom(event.viewState.zoom)}
-        dragRotate={false}
-        touchPitch={false}
-        pitchWithRotate={false}
+        dragRotate={true}
+        touchPitch={true}
+        pitchWithRotate={true}
         style={{ width: '100vw', height: '100vh' }}
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >
