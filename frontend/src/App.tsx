@@ -42,6 +42,7 @@ function App() {
             callsign: String(item.callsign ?? ''),
             longitude: Number(item.longitude),
             latitude: Number(item.latitude),
+            altitude: item.altitude !== undefined ? Number(item.altitude) : undefined,
           }))
           .filter((flight) => Number.isFinite(flight.longitude) && Number.isFinite(flight.latitude))
 
@@ -78,7 +79,7 @@ function App() {
     return <ErrorStatus error={error} />
   }
 
-  return <FlightsMap maptilerKey={MAPTILER_KEY} flights={flights.slice(0, 100)} />
+  return <FlightsMap maptilerKey={MAPTILER_KEY} flights={flights} />
 }
 
 export default App

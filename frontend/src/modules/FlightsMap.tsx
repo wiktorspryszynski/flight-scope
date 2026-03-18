@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react'
-import Map, { Marker, type MapRef } from 'react-map-gl/maplibre'
+import Map, { type LayerProps, type MapRef, Source, Layer } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Flight } from '../types/flight'
+import type { FeatureCollection, Point } from 'geojson'
 
 type FlightsMapProps = {
   maptilerKey: string
@@ -58,6 +59,15 @@ const isWithinBounds = (longitude: number, latitude: number, bounds: MapBounds) 
 }
 
 function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
+  const layerStyle: LayerProps = {
+    id: 'flights',
+    type: 'circle',
+    paint: {
+      'circle-radius': 3,
+      'circle-color': '#ff0000',
+    },
+  }
+
   const [viewState, setViewState] = useState({ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM })
   const [bounds, setBounds] = useState<MapBounds | null>(null)
   const mapRef = useRef<MapRef | null>(null)
@@ -77,7 +87,26 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
     return flights.filter((flight) => isWithinBounds(flight.longitude, flight.latitude, bounds))
   }, [bounds, flights, isGlobeProjection, viewState.latitude, viewState.longitude])
 
+  const flightsGeoJSON = useMemo<FeatureCollection<Point, { callsign: string; altitude?: number }>>(
+    () => ({
+      type: 'FeatureCollection',
+      features: visibleFlights.map((flight) => ({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [flight.longitude, flight.latitude],
+        },
+        properties: {
+          callsign: flight.callsign,
+          altitude: flight.altitude,
+        },
+      })),
+    }),
+    [visibleFlights],
+  )
+
   console.log('[FlightsMap] rendering with flights count:', visibleFlights.length)
+  console.log(visibleFlights)
 
   const syncProjectionWithZoom = (zoom: number) => {
     const map = mapRef.current?.getMap()
@@ -108,7 +137,6 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
 
   return (
     <div className="flight-map-wrapper">
-      <div className="flight-counter">Flights: {visibleFlights.length}</div>
       <Map
         ref={mapRef}
         initialViewState={{ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM }}
@@ -133,11 +161,9 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         style={{ width: '100vw', height: '100vh' }}
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >
-        {visibleFlights.map((flight) => (
-          <Marker key={flight.id} longitude={flight.longitude} latitude={flight.latitude}>
-            <div title={flight.callsign || flight.id} className="flight-marker" />
-          </Marker>
-        ))}
+        <Source id="flights" type="geojson" data={flightsGeoJSON}>
+          <Layer {...layerStyle} />
+        </Source>
       </Map>
     </div>
   )

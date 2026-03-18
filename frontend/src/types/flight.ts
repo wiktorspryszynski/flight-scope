@@ -3,4 +3,5 @@ export type Flight = {
   callsign: string
   longitude: number
   latitude: number
+  altitude?: number
 }
