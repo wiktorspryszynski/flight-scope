@@ -1,10 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from app.schemas.flight import Flight
 from ..services.opensky import get_live_flights_raw
 
 router = APIRouter()
 
-def build_live_flights_payload() -> list[Flight]:
+def build_live_flights_payload(max_flights: int = 100) -> list[Flight]:
     states = get_live_flights_raw()
 
     if states is None or states.states is None:
@@ -24,8 +24,10 @@ def build_live_flights_payload() -> list[Flight]:
             )
         )
 
-    return flights
+    return flights[:max_flights]
 
 @router.get("/live", response_model=list[Flight])
-def live_flights():
-    return build_live_flights_payload()
+def live_flights(
+    max_flights: int = Query(default=100, ge=1, alias="maxFlights"),
+):
+    return build_live_flights_payload(max_flights=max_flights)

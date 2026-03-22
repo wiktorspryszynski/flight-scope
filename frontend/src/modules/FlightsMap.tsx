@@ -14,7 +14,28 @@ type FlightsMapProps = {
 
 const INITIAL_ZOOM = 3
 const MERCATOR_ZOOM_THRESHOLD = 5
-const GLOBE_VISIBILITY_DOT_THRESHOLD = 0
+const GLOBE_VISIBILITY_DOT_THRESHOLD = 0.43
+const ICON_SIZE_PX = 28
+const ICON_COLOR: [number, number, number, number] = [255, 90, 0, 230]
+const ICON_MAPPING = {
+  plane: {
+    x: 0,
+    y: 0,
+    width: 128,
+    height: 128,
+    anchorX: 64,
+    anchorY: 64,
+    mask: true,
+  },
+} as const
+const ICON_KEY = 'plane'
+const ICON_LAYER_PICKABLE = true
+
+const getFlightPosition = (flight: Flight): [number, number] => [flight.longitude, flight.latitude]
+const getFlightIcon = () => ICON_KEY
+const getFlightSize = () => ICON_SIZE_PX
+const getFlightColor = () => ICON_COLOR
+const getFlightAngle = (flight: Flight) => flight.heading ?? 0
 
 type MapBounds = {
   west: number
@@ -45,7 +66,7 @@ const isSameHemisphere = (
   const centerZ = Math.sin(centerLatRad)
 
   const dotProduct = markerX * centerX + markerY * centerY + markerZ * centerZ
-  return dotProduct >= GLOBE_VISIBILITY_DOT_THRESHOLD
+  return dotProduct > GLOBE_VISIBILITY_DOT_THRESHOLD
 }
 
 const isWithinBounds = (longitude: number, latitude: number, bounds: MapBounds) => {
@@ -93,29 +114,26 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   }, [bounds, flights])
 
   const flightsInCurrentView = isGlobeProjection ? globeFlights : visibleFlights
-
   const flightsLayer = useMemo(
     () =>
       new IconLayer<Flight>({
         id: 'flights-icons',
         data: visibleFlights,
-        pickable: true,
+        pickable: ICON_LAYER_PICKABLE,
         billboard: true,
+        iconAtlas: airplaneIcon,
+        iconMapping: ICON_MAPPING,
         sizeUnits: 'pixels',
-        getPosition: (flight) => [flight.longitude, flight.latitude],
-        getSize: () => 28,
-        getColor: () => [255, 90, 0, 230],
-        getIcon: () => ({
-          url: airplaneIcon,
-          width: 128,
-          height: 128,
-          anchorX: 64,
-          anchorY: 64,
-          mask: true,
-        }),
+        getIcon: getFlightIcon,
+        getSize: getFlightSize,
+        getPosition: getFlightPosition,
+        getColor: getFlightColor,
+        getAngle: getFlightAngle,
       }),
     [visibleFlights],
   )
+
+  const deckLayers = useMemo(() => [flightsLayer], [flightsLayer])
 
   const syncProjectionWithZoom = (zoom: number) => {
     const map = mapRef.current?.getMap()
@@ -194,7 +212,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
                 />
               </Marker>
             ))
-          : <DeckGLOverlay layers={[flightsLayer]} />}
+          : <DeckGLOverlay layers={deckLayers} />}
       </Map>
     </div>
   )
