@@ -8,3 +8,4 @@ class Flight(BaseModel):
     latitude: Optional[float]
     altitude: Optional[float]
     velocity: Optional[float]
+    heading: Optional[float]

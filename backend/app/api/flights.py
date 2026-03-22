@@ -21,6 +21,7 @@ def build_live_flights_payload(max_flights: int = 100) -> list[Flight]:
                 latitude=getattr(state, "latitude", getattr(state, "lat", None)),
                 altitude=getattr(state, "baro_altitude", None),
                 velocity=getattr(state, "velocity", None),
+                heading=getattr(state, "true_track", None),
             )
         )
 
