@@ -103,6 +103,19 @@
   line-height: 1;
 }
 
+.map-credits {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+}
+
 .maplibregl-ctrl-attrib-button:focus, .maplibregl-ctrl-group button:focus {
   box-shadow: none !important;
 }
@@ -139,5 +152,11 @@
     top: 8px;
     left: 8px;
     font-size: 12px;
+  }
+
+  .map-credits {
+    right: 8px;
+    bottom: 8px;
+    font-size: 11px;
   }
 }

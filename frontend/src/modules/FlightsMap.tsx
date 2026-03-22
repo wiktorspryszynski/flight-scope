@@ -6,6 +6,7 @@ import Map, { Marker, type MapRef, useControl } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Flight } from '../types/flight'
 import airplaneIcon from '../assets/icons/airplane.png'
+import Credits from './Credits'
 
 type FlightsMapProps = {
   maptilerKey: string
@@ -225,6 +226,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
               </Marker>
             ))
           : <DeckGLOverlay layers={deckLayers} />}
+        {/* <Credits /> */}
       </Map>
     </div>
   )
