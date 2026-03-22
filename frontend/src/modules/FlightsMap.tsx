@@ -66,7 +66,7 @@ const isSameHemisphere = (
   const centerZ = Math.sin(centerLatRad)
 
   const dotProduct = markerX * centerX + markerY * centerY + markerZ * centerZ
-  return dotProduct >= GLOBE_VISIBILITY_DOT_THRESHOLD
+  return dotProduct > GLOBE_VISIBILITY_DOT_THRESHOLD
 }
 
 const isWithinBounds = (longitude: number, latitude: number, bounds: MapBounds) => {
