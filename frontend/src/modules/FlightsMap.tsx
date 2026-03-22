@@ -12,9 +12,11 @@ type FlightsMapProps = {
   flights: Flight[]
 }
 
+type ProjectionType = 'globe' | 'mercator'
+
 const INITIAL_ZOOM = 3
 const MERCATOR_ZOOM_THRESHOLD = 5
-const GLOBE_VISIBILITY_DOT_THRESHOLD = 0.43
+const GLOBE_VISIBILITY_DOT_THRESHOLD = 0.55
 const ICON_SIZE_PX = 28
 const ICON_COLOR: [number, number, number, number] = [255, 90, 0, 230]
 const ICON_MAPPING = {
@@ -23,8 +25,8 @@ const ICON_MAPPING = {
     y: 0,
     width: 64,
     height: 64,
-    anchorX: 64,
-    anchorY: 64,
+    anchorX: 32,
+    anchorY: 32,
     mask: true,
   },
 } as const
@@ -91,11 +93,17 @@ function DeckGLOverlay(props: DeckGLOverlayProps) {
   return null
 }
 
+const normalizeProjectionType = (projectionType: unknown): ProjectionType =>
+  projectionType === 'mercator' ? 'mercator' : 'globe'
+
 function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   const [viewState, setViewState] = useState({ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM })
   const [bounds, setBounds] = useState<MapBounds | null>(null)
+  const [projectionType, setProjectionType] = useState<ProjectionType>(
+    INITIAL_ZOOM >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe',
+  )
   const mapRef = useRef<MapRef | null>(null)
-  const isGlobeProjection = viewState.zoom < MERCATOR_ZOOM_THRESHOLD
+  const isGlobeProjection = projectionType === 'globe'
 
   const globeFlights = useMemo(
     () =>
@@ -139,12 +147,14 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
     const map = mapRef.current?.getMap()
     if (!map) return
 
-    const currentProjection = map.getProjection()?.type
-    const nextProjection = zoom >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe'
+    const currentProjection = normalizeProjectionType(map.getProjection()?.type)
+    const nextProjection: ProjectionType = zoom >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe'
 
     if (currentProjection !== nextProjection) {
       map.setProjection({ type: nextProjection })
     }
+
+    setProjectionType(nextProjection)
   }
 
   const updateBoundsFromMap = () => {
@@ -169,6 +179,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         initialViewState={{ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM }}
         onLoad={() => {
           syncProjectionWithZoom(INITIAL_ZOOM)
+          setProjectionType(normalizeProjectionType(mapRef.current?.getMap().getProjection()?.type))
           updateBoundsFromMap()
         }}
         onMove={(event) => {
@@ -183,8 +194,9 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
           updateBoundsFromMap()
         }}
         dragRotate={true}
-        touchPitch={true}
-        pitchWithRotate={true}
+        touchPitch={!isGlobeProjection}
+        pitchWithRotate={!isGlobeProjection}
+        maxPitch={isGlobeProjection ? 0 : 60}
         style={{ width: '100vw', height: '100vh' }}
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >
@@ -192,7 +204,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         {isGlobeProjection
           ? globeFlights.map((flight) => (
               <Marker
-                key={`${flight.id}-${flight.longitude}-${flight.latitude}`}
+                key={`${flight.id}`}
                 longitude={flight.longitude}
                 latitude={flight.latitude}
                 anchor="center"
