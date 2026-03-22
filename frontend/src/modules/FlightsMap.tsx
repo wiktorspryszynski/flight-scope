@@ -1,8 +1,11 @@
 import { useMemo, useRef, useState } from 'react'
-import Map, { type LayerProps, type MapRef, Source, Layer } from 'react-map-gl/maplibre'
+import { IconLayer } from '@deck.gl/layers'
+import { MapboxOverlay } from '@deck.gl/mapbox'
+import type { MapboxOverlayProps } from '@deck.gl/mapbox'
+import Map, { Marker, type MapRef, useControl } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Flight } from '../types/flight'
-import type { FeatureCollection, Point } from 'geojson'
+import airplaneIcon from '../assets/icons/airplane.png'
 
 type FlightsMapProps = {
   maptilerKey: string
@@ -11,7 +14,7 @@ type FlightsMapProps = {
 
 const INITIAL_ZOOM = 3
 const MERCATOR_ZOOM_THRESHOLD = 5
-const GLOBE_VISIBILITY_DOT_THRESHOLD = 0.3
+const GLOBE_VISIBILITY_DOT_THRESHOLD = 0
 
 type MapBounds = {
   west: number
@@ -58,55 +61,61 @@ const isWithinBounds = (longitude: number, latitude: number, bounds: MapBounds) 
   return longitude >= bounds.west || longitude <= bounds.east
 }
 
-function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
-  const layerStyle: LayerProps = {
-    id: 'flights',
-    type: 'circle',
-    paint: {
-      'circle-radius': 3,
-      'circle-color': '#ff0000',
-    },
-  }
+type DeckGLOverlayProps = Omit<MapboxOverlayProps, 'interleaved'>
 
+function DeckGLOverlay(props: DeckGLOverlayProps) {
+  const overlay = useControl<MapboxOverlay>(() => new MapboxOverlay({ interleaved: false, ...props }))
+  overlay.setProps(props)
+
+  return null
+}
+
+function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   const [viewState, setViewState] = useState({ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM })
   const [bounds, setBounds] = useState<MapBounds | null>(null)
   const mapRef = useRef<MapRef | null>(null)
   const isGlobeProjection = viewState.zoom < MERCATOR_ZOOM_THRESHOLD
 
-  const visibleFlights = useMemo(() => {
-    if (isGlobeProjection) {
-      return flights.filter((flight) =>
+  const globeFlights = useMemo(
+    () =>
+      flights.filter((flight) =>
         isSameHemisphere(flight.longitude, flight.latitude, viewState.longitude, viewState.latitude),
-      )
-    }
+      ),
+    [flights, viewState.latitude, viewState.longitude],
+  )
 
+  const visibleFlights = useMemo(() => {
     if (!bounds) {
       return flights
     }
 
     return flights.filter((flight) => isWithinBounds(flight.longitude, flight.latitude, bounds))
-  }, [bounds, flights, isGlobeProjection, viewState.latitude, viewState.longitude])
+  }, [bounds, flights])
 
-  const flightsGeoJSON = useMemo<FeatureCollection<Point, { callsign: string; altitude?: number }>>(
-    () => ({
-      type: 'FeatureCollection',
-      features: visibleFlights.map((flight) => ({
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [flight.longitude, flight.latitude],
-        },
-        properties: {
-          callsign: flight.callsign,
-          altitude: flight.altitude,
-        },
-      })),
-    }),
+  const flightsInCurrentView = isGlobeProjection ? globeFlights : visibleFlights
+
+  const flightsLayer = useMemo(
+    () =>
+      new IconLayer<Flight>({
+        id: 'flights-icons',
+        data: visibleFlights,
+        pickable: true,
+        billboard: true,
+        sizeUnits: 'pixels',
+        getPosition: (flight) => [flight.longitude, flight.latitude],
+        getSize: () => 28,
+        getColor: () => [255, 90, 0, 230],
+        getIcon: () => ({
+          url: airplaneIcon,
+          width: 128,
+          height: 128,
+          anchorX: 64,
+          anchorY: 64,
+          mask: true,
+        }),
+      }),
     [visibleFlights],
   )
-
-  console.log('[FlightsMap] rendering with flights count:', visibleFlights.length)
-  console.log(visibleFlights)
 
   const syncProjectionWithZoom = (zoom: number) => {
     const map = mapRef.current?.getMap()
@@ -161,9 +170,31 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         style={{ width: '100vw', height: '100vh' }}
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >
-        <Source id="flights" type="geojson" data={flightsGeoJSON}>
-          <Layer {...layerStyle} />
-        </Source>
+        <div className="flight-counter">Flights: {flightsInCurrentView.length} / {flights.length}</div>
+        {isGlobeProjection
+          ? globeFlights.map((flight) => (
+              <Marker
+                key={`${flight.id}-${flight.longitude}-${flight.latitude}`}
+                longitude={flight.longitude}
+                latitude={flight.latitude}
+                anchor="center"
+              >
+                <img
+                  src={airplaneIcon}
+                  alt=""
+                  aria-hidden
+                  width={20}
+                  height={20}
+                  style={{
+                    width: '20px',
+                    height: '20px',
+                    filter:
+                      'brightness(0) saturate(100%) invert(45%) sepia(92%) saturate(3297%) hue-rotate(359deg) brightness(102%) contrast(105%)',
+                  }}
+                />
+              </Marker>
+            ))
+          : <DeckGLOverlay layers={[flightsLayer]} />}
       </Map>
     </div>
   )
