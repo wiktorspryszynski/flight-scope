@@ -21,8 +21,8 @@ const ICON_MAPPING = {
   plane: {
     x: 0,
     y: 0,
-    width: 128,
-    height: 128,
+    width: 64,
+    height: 64,
     anchorX: 64,
     anchorY: 64,
     mask: true,
