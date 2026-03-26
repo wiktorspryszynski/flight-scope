@@ -42,6 +42,7 @@ const MIN_ICON_SIZE_PX = 12
 const MAX_ICON_SIZE_PX = 24
 const ICON_DEFAULT_COLOR: [number, number, number, number] = [255, 90, 0, 230]
 const ICON_HOVER_COLOR: [number, number, number, number] = [168, 85, 247, 255]
+const ICAO24_REGEX = /^[0-9a-f]{6}$/i
 
 const getFlightPosition = (flight: Flight): [number, number] => [flight.longitude, flight.latitude]
 const getFlightIcon = () => ICON_KEY
@@ -276,13 +277,16 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   const [renderedMercatorFlights, setRenderedMercatorFlights] = useState<Flight[]>([])
   const [hoveredFlightId, setHoveredFlightId] = useState<string | null>(null)
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null)
+  const [hoveredIcaoTooltip, setHoveredIcaoTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
   const [globeSamplingAnchor, setGlobeSamplingAnchor] = useState({
     longitude: 20,
     latitude: 50,
     zoomBucket: Math.floor(INITIAL_ZOOM * 2) / 2,
   })
+  const mapWrapperRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapRef | null>(null)
   const previousZoomRef = useRef(INITIAL_ZOOM)
+  const suppressNextMapClickClearRef = useRef(false)
   const isGlobeProjection = projectionType === 'globe'
 
   useEffect(() => {
@@ -383,9 +387,10 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   )
   const mercatorIconSize = iconSizeForZoom(viewState.zoom)
   const globeIconSize = iconSizeForZoom(viewState.zoom - 0.5)
+  const getFlightIcao24 = useCallback((flight: Flight) => (ICAO24_REGEX.test(flight.id) ? flight.id.toUpperCase() : null), [])
   const getFlightColorMercator = useCallback(
-    (flight: Flight) => (flight.id === hoveredFlightId ? ICON_HOVER_COLOR : ICON_DEFAULT_COLOR),
-    [hoveredFlightId],
+    (flight: Flight) => (flight.id === hoveredFlightId || flight.id === selectedFlight?.id ? ICON_HOVER_COLOR : ICON_DEFAULT_COLOR),
+    [hoveredFlightId, selectedFlight?.id],
   )
   const getFlightSizeMercator = useCallback(
     (flight: Flight) => (flight.id === hoveredFlightId ? mercatorIconSize + 3 : mercatorIconSize),
@@ -397,6 +402,8 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         id: 'flights-icons-mercator',
         data: renderedMercatorFlights,
         pickable: ICON_LAYER_PICKABLE,
+        autoHighlight: true,
+        highlightColor: ICON_HOVER_COLOR,
         billboard: true,
         iconAtlas: airplaneIcon,
         iconMapping: ICON_MAPPING,
@@ -410,15 +417,42 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
           getColor: 140,
           getSize: 140,
         },
+        updateTriggers: {
+          getColor: [hoveredFlightId, selectedFlight?.id],
+          getSize: [hoveredFlightId, mercatorIconSize],
+        },
         onHover: (info) => {
-          setHoveredFlightId(info.object ? info.object.id : null)
+          if (!info.object) {
+            setHoveredFlightId(null)
+            setHoveredIcaoTooltip(null)
+            return
+          }
+
+          setHoveredFlightId(info.object.id)
+          const icao24 = getFlightIcao24(info.object)
+          if (icao24) {
+            setHoveredIcaoTooltip({ text: icao24, x: info.x, y: info.y })
+          } else {
+            setHoveredIcaoTooltip(null)
+          }
         },
         onClick: (info) => {
+          suppressNextMapClickClearRef.current = true
           setHoveredFlightId(null)
+          setHoveredIcaoTooltip(null)
           setSelectedFlight(info.object ?? null)
         },
       }),
-    [getFlightAngleMercator, getFlightColorMercator, getFlightSizeMercator, renderedMercatorFlights],
+    [
+      getFlightAngleMercator,
+      getFlightColorMercator,
+      getFlightIcao24,
+      getFlightSizeMercator,
+      hoveredFlightId,
+      mercatorIconSize,
+      renderedMercatorFlights,
+      selectedFlight?.id,
+    ],
   )
   const deckLayers = useMemo(() => [mercatorLayer], [mercatorLayer])
 
@@ -455,7 +489,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   }
 
   return (
-    <div className="flight-map-wrapper">
+    <div ref={mapWrapperRef} className="flight-map-wrapper">
       <Map
         ref={mapRef}
         initialViewState={{ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM }}
@@ -467,6 +501,9 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         onMove={(event) => {
           if (hoveredFlightId) {
             setHoveredFlightId(null)
+          }
+          if (hoveredIcaoTooltip) {
+            setHoveredIcaoTooltip(null)
           }
           setViewState((previous) => {
             const next = {
@@ -486,6 +523,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         }}
         onMoveEnd={(event) => {
           setHoveredFlightId(null)
+          setHoveredIcaoTooltip(null)
           setViewState((previous) => {
             const next = {
               longitude: event.viewState.longitude,
@@ -506,7 +544,12 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         }}
         dragRotate={isGlobeProjection}
         onClick={() => {
+          if (suppressNextMapClickClearRef.current) {
+            suppressNextMapClickClearRef.current = false
+            return
+          }
           setHoveredFlightId(null)
+          setHoveredIcaoTooltip(null)
           setSelectedFlight(null)
         }}
         touchPitch={false}
@@ -531,11 +574,42 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
                   type="button"
                   className={`flight-marker-button${selectedFlight?.id === flight.id ? ' flight-marker-button--selected' : ''}`}
                   aria-label={`Show details for ${flight.callsign || flight.id}`}
-                  onMouseEnter={() => setHoveredFlightId(flight.id)}
-                  onMouseLeave={() => setHoveredFlightId(null)}
+                  onMouseEnter={(event) => {
+                    setHoveredFlightId(flight.id)
+                    const icao24 = getFlightIcao24(flight)
+                    if (!icao24 || !mapWrapperRef.current) {
+                      setHoveredIcaoTooltip(null)
+                      return
+                    }
+                    const rect = mapWrapperRef.current.getBoundingClientRect()
+                    setHoveredIcaoTooltip({
+                      text: icao24,
+                      x: event.clientX - rect.left,
+                      y: event.clientY - rect.top,
+                    })
+                  }}
+                  onMouseMove={(event) => {
+                    const icao24 = getFlightIcao24(flight)
+                    if (!icao24 || !mapWrapperRef.current) {
+                      setHoveredIcaoTooltip(null)
+                      return
+                    }
+                    const rect = mapWrapperRef.current.getBoundingClientRect()
+                    setHoveredIcaoTooltip({
+                      text: icao24,
+                      x: event.clientX - rect.left,
+                      y: event.clientY - rect.top,
+                    })
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredFlightId(null)
+                    setHoveredIcaoTooltip(null)
+                  }}
                   onClick={(event) => {
                     event.stopPropagation()
+                    suppressNextMapClickClearRef.current = true
                     setHoveredFlightId(null)
+                    setHoveredIcaoTooltip(null)
                     setSelectedFlight(flight)
                   }}
                 >
@@ -557,8 +631,15 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
               </Marker>
             ))
           : <DeckGLOverlay layers={deckLayers} />}
+        {hoveredIcaoTooltip ? (
+          <div
+            className="flight-icao-tooltip"
+            style={{ left: `${hoveredIcaoTooltip.x + 12}px`, top: `${hoveredIcaoTooltip.y - 28}px` }}
+          >
+            {hoveredIcaoTooltip.text}
+          </div>
+        ) : null}
         {selectedFlight ? <FlightInfoCard flight={selectedFlight} onClose={() => setSelectedFlight(null)} /> : null}
-        {/* <Credits /> */}
       </Map>
     </div>
   )
