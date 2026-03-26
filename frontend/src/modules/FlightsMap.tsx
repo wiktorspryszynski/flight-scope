@@ -6,6 +6,7 @@ import Map, { Marker, type MapRef, useControl } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Flight } from '../types/flight'
 import airplaneIcon from '../assets/icons/airplane.png'
+import FlightInfoCard from './FlightInfoCard'
 
 type FlightsMapProps = {
   maptilerKey: string
@@ -17,7 +18,6 @@ type ProjectionType = 'globe' | 'mercator'
 const INITIAL_ZOOM = 3
 const MERCATOR_ZOOM_THRESHOLD = 5
 const GLOBE_VISIBILITY_DOT_THRESHOLD = 0.55
-const ICON_COLOR: [number, number, number, number] = [255, 90, 0, 230]
 const ICON_MAPPING = {
   plane: {
     x: 0,
@@ -30,17 +30,21 @@ const ICON_MAPPING = {
   },
 } as const
 const ICON_KEY = 'plane'
-const ICON_LAYER_PICKABLE = false
+const ICON_LAYER_PICKABLE = true
 const MAX_MERCATOR_RENDERED_FLIGHTS = 800
 const BASE_MERCATOR_RENDERED_FLIGHTS = 220
 const RENDERED_FLIGHTS_PER_ZOOM_LEVEL = 140
-const MAX_GLOBE_RENDERED_FLIGHTS = 300
+const MAX_GLOBE_RENDERED_FLIGHTS = 520
+const BASE_GLOBE_RENDERED_FLIGHTS = 140
+const GLOBE_RENDERED_FLIGHTS_PER_ZOOM_LEVEL = 70
+const GLOBE_FOCUS_ZOOM_THRESHOLD = 4.8
 const MIN_ICON_SIZE_PX = 12
 const MAX_ICON_SIZE_PX = 24
+const ICON_DEFAULT_COLOR: [number, number, number, number] = [255, 90, 0, 230]
+const ICON_HOVER_COLOR: [number, number, number, number] = [168, 85, 247, 255]
 
 const getFlightPosition = (flight: Flight): [number, number] => [flight.longitude, flight.latitude]
 const getFlightIcon = () => ICON_KEY
-const getFlightColor = () => ICON_COLOR
 const normalizeHeading = (heading?: number) => {
   if (!Number.isFinite(heading)) {
     return 0
@@ -58,7 +62,7 @@ type MapBounds = {
 
 const toRadians = (value: number) => (value * Math.PI) / 180
 
-const isSameHemisphere = (
+const isVisibleOnGlobe = (
   markerLongitude: number,
   markerLatitude: number,
   centerLongitude: number,
@@ -111,6 +115,12 @@ const mercatorRenderTarget = (zoom: number) => {
   return Math.min(MAX_MERCATOR_RENDERED_FLIGHTS, target)
 }
 
+const globeRenderTarget = (zoom: number) => {
+  const zoomDelta = Math.max(0, Math.floor(zoom))
+  const target = BASE_GLOBE_RENDERED_FLIGHTS + zoomDelta * GLOBE_RENDERED_FLIGHTS_PER_ZOOM_LEVEL
+  return Math.min(MAX_GLOBE_RENDERED_FLIGHTS, target)
+}
+
 const iconSizeForZoom = (zoom: number) => {
   if (zoom <= 4) return MIN_ICON_SIZE_PX
   if (zoom >= 8) return MAX_ICON_SIZE_PX
@@ -132,6 +142,120 @@ const sameFlightsById = (a: Flight[], b: Flight[]) => {
   return true
 }
 
+const pickEvenlyByStride = <T,>(items: T[], targetCount: number) => {
+  if (items.length <= targetCount) {
+    return items
+  }
+
+  const result: T[] = []
+  const step = items.length / targetCount
+  let cursor = 0
+
+  for (let i = 0; i < targetCount; i += 1) {
+    result.push(items[Math.floor(cursor)])
+    cursor += step
+  }
+
+  return result
+}
+
+const selectEvenlyDistributedFlights = (
+  sourceFlights: Flight[],
+  targetCount: number,
+  centerLongitude: number,
+  centerLatitude: number,
+  zoom: number,
+) => {
+  if (sourceFlights.length <= targetCount) {
+    return sourceFlights
+  }
+
+  const gridColumns = Math.max(6, Math.round(Math.sqrt(targetCount * 2)))
+  const gridRows = Math.max(3, Math.round(gridColumns / 2))
+  const lonCellSize = 360 / gridColumns
+  const latCellSize = 180 / gridRows
+
+  const flightsByCell = new globalThis.Map<string, Flight[]>()
+
+  for (const flight of sourceFlights) {
+    const lonIndex = Math.max(0, Math.min(gridColumns - 1, Math.floor((flight.longitude + 180) / lonCellSize)))
+    const latIndex = Math.max(0, Math.min(gridRows - 1, Math.floor((flight.latitude + 90) / latCellSize)))
+    const cellKey = `${latIndex}:${lonIndex}`
+    const cellFlights = flightsByCell.get(cellKey)
+    if (cellFlights) {
+      cellFlights.push(flight)
+    } else {
+      flightsByCell.set(cellKey, [flight])
+    }
+  }
+
+  const orderedCellEntries = [...flightsByCell.entries()]
+    .map(([cellKey, flightsInCell]) => ({
+      cellKey,
+      flights: flightsInCell.sort(
+        (flightA, flightB) =>
+          distanceScoreToCenter(flightA, centerLongitude, centerLatitude) -
+          distanceScoreToCenter(flightB, centerLongitude, centerLatitude),
+      ),
+    }))
+    .sort((a, b) => a.cellKey.localeCompare(b.cellKey))
+
+  const topPerCell = orderedCellEntries.map((entry) => entry.flights[0])
+
+  if (topPerCell.length >= targetCount) {
+    if (zoom >= GLOBE_FOCUS_ZOOM_THRESHOLD) {
+      return topPerCell
+        .sort(
+          (flightA, flightB) =>
+            distanceScoreToCenter(flightA, centerLongitude, centerLatitude) -
+            distanceScoreToCenter(flightB, centerLongitude, centerLatitude),
+        )
+        .slice(0, targetCount)
+    }
+
+    return pickEvenlyByStride(topPerCell, targetCount)
+  }
+
+  const selected = [...topPerCell]
+  const selectedIds = new Set(selected.map((flight) => flight.id))
+  const maxDepth = Math.max(...orderedCellEntries.map((entry) => entry.flights.length))
+
+  for (let depth = 1; depth < maxDepth && selected.length < targetCount; depth += 1) {
+    if (zoom >= GLOBE_FOCUS_ZOOM_THRESHOLD) {
+      const remaining = orderedCellEntries
+        .map((entry) => entry.flights[depth])
+        .filter((flight): flight is Flight => Boolean(flight) && !selectedIds.has(flight.id))
+        .sort(
+          (flightA, flightB) =>
+            distanceScoreToCenter(flightA, centerLongitude, centerLatitude) -
+            distanceScoreToCenter(flightB, centerLongitude, centerLatitude),
+        )
+
+      for (const flight of remaining) {
+        if (selected.length >= targetCount) {
+          break
+        }
+        selected.push(flight)
+        selectedIds.add(flight.id)
+      }
+    } else {
+      for (const entry of orderedCellEntries) {
+        if (selected.length >= targetCount) {
+          break
+        }
+        const candidate = entry.flights[depth]
+        if (!candidate || selectedIds.has(candidate.id)) {
+          continue
+        }
+        selected.push(candidate)
+        selectedIds.add(candidate.id)
+      }
+    }
+  }
+
+  return selected.slice(0, targetCount)
+}
+
 type DeckGLOverlayProps = Omit<MapboxOverlayProps, 'interleaved'>
 
 function DeckGLOverlay(props: DeckGLOverlayProps) {
@@ -150,17 +274,36 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
     INITIAL_ZOOM >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe',
   )
   const [renderedMercatorFlights, setRenderedMercatorFlights] = useState<Flight[]>([])
+  const [hoveredFlightId, setHoveredFlightId] = useState<string | null>(null)
+  const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null)
+  const [globeSamplingAnchor, setGlobeSamplingAnchor] = useState({
+    longitude: 20,
+    latitude: 50,
+    zoomBucket: Math.floor(INITIAL_ZOOM * 2) / 2,
+  })
   const mapRef = useRef<MapRef | null>(null)
   const previousZoomRef = useRef(INITIAL_ZOOM)
   const isGlobeProjection = projectionType === 'globe'
 
-  const globeFlights = useMemo(
-    () =>
-      flights.filter((flight) =>
-        isSameHemisphere(flight.longitude, flight.latitude, viewState.longitude, viewState.latitude),
-      ),
-    [flights, viewState.latitude, viewState.longitude],
-  )
+  useEffect(() => {
+    if (!isGlobeProjection) {
+      return
+    }
+
+    const zoomBucket = Math.floor(viewState.zoom * 2) / 2
+    setGlobeSamplingAnchor((previous) => {
+      const zoomBucketChanged = previous.zoomBucket !== zoomBucket
+      if (!zoomBucketChanged) {
+        return previous
+      }
+
+      return {
+        longitude: viewState.longitude,
+        latitude: viewState.latitude,
+        zoomBucket,
+      }
+    })
+  }, [isGlobeProjection, viewState.latitude, viewState.longitude, viewState.zoom])
 
   const visibleFlights = useMemo(() => {
     if (!bounds) {
@@ -170,23 +313,28 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
     return flights.filter((flight) => isWithinBounds(flight.longitude, flight.latitude, bounds))
   }, [bounds, flights])
 
-  const flightsInCurrentView = isGlobeProjection ? globeFlights : visibleFlights
   const mercatorFlightsTotal = visibleFlights.length
+  const globeSamplePool = useMemo(
+    () => selectEvenlyDistributedFlights(
+      flights,
+      globeRenderTarget(viewState.zoom),
+      globeSamplingAnchor.longitude,
+      globeSamplingAnchor.latitude,
+      viewState.zoom,
+    ),
+    [flights, globeSamplingAnchor.latitude, globeSamplingAnchor.longitude, viewState.zoom],
+  )
   const renderedGlobeFlights = useMemo(
     () =>
-      [...globeFlights]
-        .sort(
-          (flightA, flightB) =>
-            distanceScoreToCenter(flightA, viewState.longitude, viewState.latitude) -
-            distanceScoreToCenter(flightB, viewState.longitude, viewState.latitude),
-        )
-        .slice(0, MAX_GLOBE_RENDERED_FLIGHTS),
-    [globeFlights, viewState.latitude, viewState.longitude],
+      globeSamplePool.filter((flight) =>
+        isVisibleOnGlobe(flight.longitude, flight.latitude, viewState.longitude, viewState.latitude),
+      ),
+    [globeSamplePool, viewState.latitude, viewState.longitude],
   )
 
   useEffect(() => {
     if (isGlobeProjection) {
-      setRenderedMercatorFlights([])
+      setRenderedMercatorFlights((previous) => (previous.length === 0 ? previous : []))
       previousZoomRef.current = viewState.zoom
       return
     }
@@ -225,30 +373,52 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
     })
   }, [isGlobeProjection, viewState.latitude, viewState.longitude, viewState.zoom, visibleFlights])
 
-  const getFlightAngleMercator = useCallback((flight: Flight) => normalizeHeading(flight.heading), [])
+  const getFlightAngleMercator = useCallback(
+    (flight: Flight) => normalizeHeading(-(flight.heading ?? 0)),
+    [],
+  )
   const getFlightAngleGlobe = useCallback(
     (flight: Flight) => normalizeHeading((flight.heading ?? 0) - viewState.bearing),
     [viewState.bearing],
   )
   const mercatorIconSize = iconSizeForZoom(viewState.zoom)
   const globeIconSize = iconSizeForZoom(viewState.zoom - 0.5)
+  const getFlightColorMercator = useCallback(
+    (flight: Flight) => (flight.id === hoveredFlightId ? ICON_HOVER_COLOR : ICON_DEFAULT_COLOR),
+    [hoveredFlightId],
+  )
+  const getFlightSizeMercator = useCallback(
+    (flight: Flight) => (flight.id === hoveredFlightId ? mercatorIconSize + 3 : mercatorIconSize),
+    [hoveredFlightId, mercatorIconSize],
+  )
   const mercatorLayer = useMemo(
     () =>
       new IconLayer<Flight>({
         id: 'flights-icons-mercator',
         data: renderedMercatorFlights,
         pickable: ICON_LAYER_PICKABLE,
-        billboard: false,
+        billboard: true,
         iconAtlas: airplaneIcon,
         iconMapping: ICON_MAPPING,
         sizeUnits: 'pixels',
         getIcon: getFlightIcon,
-        getSize: mercatorIconSize,
+        getSize: getFlightSizeMercator,
         getPosition: getFlightPosition,
-        getColor: getFlightColor,
+        getColor: getFlightColorMercator,
         getAngle: getFlightAngleMercator,
+        transitions: {
+          getColor: 140,
+          getSize: 140,
+        },
+        onHover: (info) => {
+          setHoveredFlightId(info.object ? info.object.id : null)
+        },
+        onClick: (info) => {
+          setHoveredFlightId(null)
+          setSelectedFlight(info.object ?? null)
+        },
       }),
-    [getFlightAngleMercator, mercatorIconSize, renderedMercatorFlights],
+    [getFlightAngleMercator, getFlightColorMercator, getFlightSizeMercator, renderedMercatorFlights],
   )
   const deckLayers = useMemo(() => [mercatorLayer], [mercatorLayer])
 
@@ -261,6 +431,9 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
 
     if (currentProjection !== nextProjection) {
       map.setProjection({ type: nextProjection })
+      if (nextProjection === 'mercator') {
+        map.easeTo({ bearing: 0, pitch: 0, duration: 0 })
+      }
     }
 
     setProjectionType((previous) => (previous === nextProjection ? previous : nextProjection))
@@ -291,7 +464,28 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
           setProjectionType(normalizeProjectionType(mapRef.current?.getMap().getProjection()?.type))
           updateBoundsFromMap()
         }}
+        onMove={(event) => {
+          if (hoveredFlightId) {
+            setHoveredFlightId(null)
+          }
+          setViewState((previous) => {
+            const next = {
+              longitude: event.viewState.longitude,
+              latitude: event.viewState.latitude,
+              zoom: event.viewState.zoom,
+              bearing: event.viewState.bearing,
+            }
+
+            const sameLongitude = Math.abs(previous.longitude - next.longitude) < 1e-7
+            const sameLatitude = Math.abs(previous.latitude - next.latitude) < 1e-7
+            const sameZoom = Math.abs(previous.zoom - next.zoom) < 1e-7
+            const sameBearing = Math.abs(previous.bearing - next.bearing) < 1e-7
+
+            return sameLongitude && sameLatitude && sameZoom && sameBearing ? previous : next
+          })
+        }}
         onMoveEnd={(event) => {
+          setHoveredFlightId(null)
           setViewState((previous) => {
             const next = {
               longitude: event.viewState.longitude,
@@ -310,16 +504,20 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
           syncProjectionWithZoom(event.viewState.zoom)
           updateBoundsFromMap()
         }}
-        dragRotate={true}
-        touchPitch={!isGlobeProjection}
-        pitchWithRotate={!isGlobeProjection}
-        maxPitch={isGlobeProjection ? 0 : 60}
+        dragRotate={isGlobeProjection}
+        onClick={() => {
+          setHoveredFlightId(null)
+          setSelectedFlight(null)
+        }}
+        touchPitch={false}
+        pitchWithRotate={false}
+        maxPitch={0}
         style={{ width: '100vw', height: '100vh' }}
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >
         <div className="flight-counter">
           Flights: {isGlobeProjection ? renderedGlobeFlights.length : renderedMercatorFlights.length}
-          {isGlobeProjection ? ` / ${flightsInCurrentView.length}` : ` / ${mercatorFlightsTotal}`} / {flights.length}
+          {isGlobeProjection ? ` / ${globeSamplePool.length}` : ` / ${mercatorFlightsTotal}`} / {flights.length}
         </div>
         {isGlobeProjection
           ? renderedGlobeFlights.map((flight) => (
@@ -329,24 +527,37 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
                 latitude={flight.latitude}
                 anchor="center"
               >
-                <img
-                  src={airplaneIcon}
-                  alt=""
-                  aria-hidden
-                  width={globeIconSize}
-                  height={globeIconSize}
-                  style={{
-                    width: `${globeIconSize}px`,
-                    height: `${globeIconSize}px`,
-                    transform: `rotate(${getFlightAngleGlobe(flight)}deg)`,
-                    transformOrigin: '50% 50%',
-                    filter:
-                      'brightness(0) saturate(100%) invert(45%) sepia(92%) saturate(3297%) hue-rotate(359deg) brightness(102%) contrast(105%)',
+                <button
+                  type="button"
+                  className={`flight-marker-button${selectedFlight?.id === flight.id ? ' flight-marker-button--selected' : ''}`}
+                  aria-label={`Show details for ${flight.callsign || flight.id}`}
+                  onMouseEnter={() => setHoveredFlightId(flight.id)}
+                  onMouseLeave={() => setHoveredFlightId(null)}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setHoveredFlightId(null)
+                    setSelectedFlight(flight)
                   }}
-                />
+                >
+                  <img
+                    src={airplaneIcon}
+                    alt=""
+                    aria-hidden
+                    className={`flight-marker-icon${hoveredFlightId === flight.id ? ' flight-marker-icon--hovered' : ''}`}
+                    width={globeIconSize}
+                    height={globeIconSize}
+                    style={{
+                      width: `${globeIconSize}px`,
+                      height: `${globeIconSize}px`,
+                      transform: `rotate(${getFlightAngleGlobe(flight)}deg)`,
+                      transformOrigin: '50% 50%',
+                    }}
+                  />
+                </button>
               </Marker>
             ))
           : <DeckGLOverlay layers={deckLayers} />}
+        {selectedFlight ? <FlightInfoCard flight={selectedFlight} onClose={() => setSelectedFlight(null)} /> : null}
         {/* <Credits /> */}
       </Map>
     </div>
