@@ -1,12 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
-import { IconLayer } from '@deck.gl/layers'
-import { MapboxOverlay } from '@deck.gl/mapbox'
-import type { MapboxOverlayProps } from '@deck.gl/mapbox'
-import Map, { Marker, type MapRef, useControl } from 'react-map-gl/maplibre'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import Map, { Marker, type MapRef } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Flight } from '../types/flight'
 import airplaneIcon from '../assets/icons/airplane.png'
-import Credits from './Credits'
 
 type FlightsMapProps = {
   maptilerKey: string
@@ -18,27 +14,13 @@ type ProjectionType = 'globe' | 'mercator'
 const INITIAL_ZOOM = 3
 const MERCATOR_ZOOM_THRESHOLD = 5
 const GLOBE_VISIBILITY_DOT_THRESHOLD = 0.55
-const ICON_SIZE_PX = 28
-const ICON_COLOR: [number, number, number, number] = [255, 90, 0, 230]
-const ICON_MAPPING = {
-  plane: {
-    x: 0,
-    y: 0,
-    width: 64,
-    height: 64,
-    anchorX: 32,
-    anchorY: 32,
-    mask: true,
-  },
-} as const
-const ICON_KEY = 'plane'
-const ICON_LAYER_PICKABLE = true
+const normalizeHeading = (heading?: number) => {
+  if (!Number.isFinite(heading)) {
+    return 0
+  }
 
-const getFlightPosition = (flight: Flight): [number, number] => [flight.longitude, flight.latitude]
-const getFlightIcon = () => ICON_KEY
-const getFlightSize = () => ICON_SIZE_PX
-const getFlightColor = () => ICON_COLOR
-const getFlightAngle = (flight: Flight) => flight.heading ?? 0
+  return ((heading as number) % 360 + 360) % 360
+}
 
 type MapBounds = {
   west: number
@@ -85,20 +67,11 @@ const isWithinBounds = (longitude: number, latitude: number, bounds: MapBounds) 
   return longitude >= bounds.west || longitude <= bounds.east
 }
 
-type DeckGLOverlayProps = Omit<MapboxOverlayProps, 'interleaved'>
-
-function DeckGLOverlay(props: DeckGLOverlayProps) {
-  const overlay = useControl<MapboxOverlay>(() => new MapboxOverlay({ interleaved: false, ...props }))
-  overlay.setProps(props)
-
-  return null
-}
-
 const normalizeProjectionType = (projectionType: unknown): ProjectionType =>
   projectionType === 'mercator' ? 'mercator' : 'globe'
 
 function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
-  const [viewState, setViewState] = useState({ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM })
+  const [viewState, setViewState] = useState({ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM, bearing: 0 })
   const [bounds, setBounds] = useState<MapBounds | null>(null)
   const [projectionType, setProjectionType] = useState<ProjectionType>(
     INITIAL_ZOOM >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe',
@@ -123,26 +96,10 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   }, [bounds, flights])
 
   const flightsInCurrentView = isGlobeProjection ? globeFlights : visibleFlights
-  const flightsLayer = useMemo(
-    () =>
-      new IconLayer<Flight>({
-        id: 'flights-icons',
-        data: visibleFlights,
-        pickable: ICON_LAYER_PICKABLE,
-        billboard: true,
-        iconAtlas: airplaneIcon,
-        iconMapping: ICON_MAPPING,
-        sizeUnits: 'pixels',
-        getIcon: getFlightIcon,
-        getSize: getFlightSize,
-        getPosition: getFlightPosition,
-        getColor: getFlightColor,
-        getAngle: getFlightAngle,
-      }),
-    [visibleFlights],
+  const getFlightAngleForView = useCallback(
+    (flight: Flight) => normalizeHeading((flight.heading ?? 0) - viewState.bearing),
+    [viewState.bearing],
   )
-
-  const deckLayers = useMemo(() => [flightsLayer], [flightsLayer])
 
   const syncProjectionWithZoom = (zoom: number) => {
     const map = mapRef.current?.getMap()
@@ -188,6 +145,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
             longitude: event.viewState.longitude,
             latitude: event.viewState.latitude,
             zoom: event.viewState.zoom,
+            bearing: event.viewState.bearing,
           })
         }}
         onMoveEnd={(event) => {
@@ -202,30 +160,30 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >
         <div className="flight-counter">Flights: {flightsInCurrentView.length} / {flights.length}</div>
-        {isGlobeProjection
-          ? globeFlights.map((flight) => (
-              <Marker
-                key={`${flight.id}`}
-                longitude={flight.longitude}
-                latitude={flight.latitude}
-                anchor="center"
-              >
-                <img
-                  src={airplaneIcon}
-                  alt=""
-                  aria-hidden
-                  width={20}
-                  height={20}
-                  style={{
-                    width: '20px',
-                    height: '20px',
-                    filter:
-                      'brightness(0) saturate(100%) invert(45%) sepia(92%) saturate(3297%) hue-rotate(359deg) brightness(102%) contrast(105%)',
-                  }}
-                />
-              </Marker>
-            ))
-          : <DeckGLOverlay layers={deckLayers} />}
+        {flightsInCurrentView.map((flight) => (
+          <Marker
+            key={`${flight.id}`}
+            longitude={flight.longitude}
+            latitude={flight.latitude}
+            anchor="center"
+          >
+            <img
+              src={airplaneIcon}
+              alt=""
+              aria-hidden
+              width={20}
+              height={20}
+              style={{
+                width: '20px',
+                height: '20px',
+                transform: `rotate(${getFlightAngleForView(flight)}deg)`,
+                transformOrigin: '50% 50%',
+                filter:
+                  'brightness(0) saturate(100%) invert(45%) sepia(92%) saturate(3297%) hue-rotate(359deg) brightness(102%) contrast(105%)',
+              }}
+            />
+          </Marker>
+        ))}
         {/* <Credits /> */}
       </Map>
     </div>
