@@ -314,6 +314,11 @@
   box-shadow: none !important;
 }
 
+.flight-info-card__heading-arrow {
+  margin-left: 5px;
+  font-weight: 800;
+}
+
 @media (max-width: 900px) {
   .app-header {
     padding: 14px 14px 10px;

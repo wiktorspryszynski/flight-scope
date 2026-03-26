@@ -41,6 +41,7 @@ function FlightInfoCard({ flight, onClose }: FlightInfoCardProps) {
               ? <>
                   <span>{formatNumber(flight.heading, 1)}°</span>{' '}
                   <span
+                    className="flight-info-card__heading-arrow"
                     title="Heading direction"
                     style={{
                       display: 'inline-block',

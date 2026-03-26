@@ -257,6 +257,19 @@ const selectEvenlyDistributedFlights = (
   return selected.slice(0, targetCount)
 }
 
+const keepSelectedFlightVisible = (flights: Flight[], selectedFlight: Flight | null) => {
+  if (!selectedFlight) {
+    return flights
+  }
+
+  const selectedIndex = flights.findIndex((flight) => flight.id === selectedFlight.id)
+  if (selectedIndex >= 0) {
+    return flights
+  }
+
+  return [selectedFlight, ...flights]
+}
+
 type DeckGLOverlayProps = Omit<MapboxOverlayProps, 'interleaved'>
 
 function DeckGLOverlay(props: DeckGLOverlayProps) {
@@ -290,6 +303,23 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   const isGlobeProjection = projectionType === 'globe'
 
   useEffect(() => {
+    if (!selectedFlight) {
+      return
+    }
+
+    const updatedSelected = flights.find((flight) => flight.id === selectedFlight.id)
+    if (!updatedSelected) {
+      return
+    }
+
+    if (updatedSelected === selectedFlight) {
+      return
+    }
+
+    setSelectedFlight(updatedSelected)
+  }, [flights, selectedFlight])
+
+  useEffect(() => {
     if (!isGlobeProjection) {
       return
     }
@@ -318,16 +348,16 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   }, [bounds, flights])
 
   const mercatorFlightsTotal = visibleFlights.length
-  const globeSamplePool = useMemo(
-    () => selectEvenlyDistributedFlights(
+  const globeSamplePool = useMemo(() => {
+    const sampledFlights = selectEvenlyDistributedFlights(
       flights,
       globeRenderTarget(viewState.zoom),
       globeSamplingAnchor.longitude,
       globeSamplingAnchor.latitude,
       viewState.zoom,
-    ),
-    [flights, globeSamplingAnchor.latitude, globeSamplingAnchor.longitude, viewState.zoom],
-  )
+    )
+    return keepSelectedFlightVisible(sampledFlights, selectedFlight)
+  }, [flights, globeSamplingAnchor.latitude, globeSamplingAnchor.longitude, selectedFlight, viewState.zoom])
   const renderedGlobeFlights = useMemo(
     () =>
       globeSamplePool.filter((flight) =>
@@ -352,12 +382,20 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
           distanceScoreToCenter(flightA, viewState.longitude, viewState.latitude) -
           distanceScoreToCenter(flightB, viewState.longitude, viewState.latitude),
       )
-      .slice(0, MAX_MERCATOR_RENDERED_FLIGHTS)
+
+    const selectedInView = selectedFlight
+      ? orderedCandidates.find((flight) => flight.id === selectedFlight.id) ?? null
+      : null
+
+    const cappedCandidates = [
+      ...(selectedInView ? [selectedInView] : []),
+      ...orderedCandidates.filter((flight) => !selectedInView || flight.id !== selectedInView.id),
+    ].slice(0, MAX_MERCATOR_RENDERED_FLIGHTS)
 
     const targetCount = mercatorRenderTarget(viewState.zoom)
 
     setRenderedMercatorFlights((previousFlights) => {
-      const candidateById = new globalThis.Map(orderedCandidates.map((flight) => [flight.id, flight]))
+      const candidateById = new globalThis.Map(cappedCandidates.map((flight) => [flight.id, flight]))
       const keptFlights = previousFlights
         .filter((flight) => candidateById.has(flight.id))
         .map((flight) => candidateById.get(flight.id) as Flight)
@@ -368,14 +406,14 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
       }
 
       const keptIds = new Set(keptFlights.map((flight) => flight.id))
-      const missingFlights = orderedCandidates.filter((flight) => !keptIds.has(flight.id))
+      const missingFlights = cappedCandidates.filter((flight) => !keptIds.has(flight.id))
       const remainingCapacity = Math.max(0, targetCount - keptFlights.length)
       const newFlights = missingFlights.slice(0, remainingCapacity)
 
-      const nextFlights = keptFlights.concat(newFlights)
+      const nextFlights = keepSelectedFlightVisible(keptFlights.concat(newFlights), selectedFlight)
       return sameFlightsById(previousFlights, nextFlights) ? previousFlights : nextFlights
     })
-  }, [isGlobeProjection, viewState.latitude, viewState.longitude, viewState.zoom, visibleFlights])
+  }, [isGlobeProjection, selectedFlight, viewState.latitude, viewState.longitude, viewState.zoom, visibleFlights])
 
   const getFlightAngleMercator = useCallback(
     (flight: Flight) => normalizeHeading(-(flight.heading ?? 0)),
