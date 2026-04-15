@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import type { PickingInfo } from '@deck.gl/core'
 import { IconLayer } from '@deck.gl/layers'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import type { MapboxOverlayProps } from '@deck.gl/mapbox'
@@ -127,20 +128,6 @@ const iconSizeForZoom = (zoom: number) => {
   if (zoom >= 8) return MAX_ICON_SIZE_PX
   const t = (zoom - 4) / 4
   return Math.round(MIN_ICON_SIZE_PX + t * (MAX_ICON_SIZE_PX - MIN_ICON_SIZE_PX))
-}
-
-const sameFlightsById = (a: Flight[], b: Flight[]) => {
-  if (a.length !== b.length) {
-    return false
-  }
-
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i].id !== b[i].id) {
-      return false
-    }
-  }
-
-  return true
 }
 
 const pickEvenlyByStride = <T,>(items: T[], targetCount: number) => {
@@ -287,57 +274,20 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   const [projectionType, setProjectionType] = useState<ProjectionType>(
     INITIAL_ZOOM >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe',
   )
-  const [renderedMercatorFlights, setRenderedMercatorFlights] = useState<Flight[]>([])
   const [hoveredFlightId, setHoveredFlightId] = useState<string | null>(null)
-  const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null)
+  const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null)
   const [hoveredIcaoTooltip, setHoveredIcaoTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
   const [globeSamplingAnchor, setGlobeSamplingAnchor] = useState({
     longitude: 20,
     latitude: 50,
     zoomBucket: Math.floor(INITIAL_ZOOM * 2) / 2,
   })
-  const mapWrapperRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<MapRef | null>(null)
-  const previousZoomRef = useRef(INITIAL_ZOOM)
-  const suppressNextMapClickClearRef = useRef(false)
+  const [mapInstance, setMapInstance] = useState<MapRef | null>(null)
   const isGlobeProjection = projectionType === 'globe'
-
-  useEffect(() => {
-    if (!selectedFlight) {
-      return
-    }
-
-    const updatedSelected = flights.find((flight) => flight.id === selectedFlight.id)
-    if (!updatedSelected) {
-      return
-    }
-
-    if (updatedSelected === selectedFlight) {
-      return
-    }
-
-    setSelectedFlight(updatedSelected)
-  }, [flights, selectedFlight])
-
-  useEffect(() => {
-    if (!isGlobeProjection) {
-      return
-    }
-
-    const zoomBucket = Math.floor(viewState.zoom * 2) / 2
-    setGlobeSamplingAnchor((previous) => {
-      const zoomBucketChanged = previous.zoomBucket !== zoomBucket
-      if (!zoomBucketChanged) {
-        return previous
-      }
-
-      return {
-        longitude: viewState.longitude,
-        latitude: viewState.latitude,
-        zoomBucket,
-      }
-    })
-  }, [isGlobeProjection, viewState.latitude, viewState.longitude, viewState.zoom])
+  const selectedFlight = useMemo(
+    () => (selectedFlightId ? flights.find((flight) => flight.id === selectedFlightId) ?? null : null),
+    [flights, selectedFlightId],
+  )
 
   const visibleFlights = useMemo(() => {
     if (!bounds) {
@@ -347,7 +297,6 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
     return flights.filter((flight) => isWithinBounds(flight.longitude, flight.latitude, bounds))
   }, [bounds, flights])
 
-  const mercatorFlightsTotal = visibleFlights.length
   const globeSamplePool = useMemo(() => {
     const sampledFlights = selectEvenlyDistributedFlights(
       flights,
@@ -365,16 +314,10 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
       ),
     [globeSamplePool, viewState.latitude, viewState.longitude],
   )
-
-  useEffect(() => {
+  const renderedMercatorFlights = useMemo(() => {
     if (isGlobeProjection) {
-      setRenderedMercatorFlights((previous) => (previous.length === 0 ? previous : []))
-      previousZoomRef.current = viewState.zoom
-      return
+      return []
     }
-
-    const zoomingIn = viewState.zoom > previousZoomRef.current
-    previousZoomRef.current = viewState.zoom
 
     const orderedCandidates = [...visibleFlights]
       .sort(
@@ -387,32 +330,10 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
       ? orderedCandidates.find((flight) => flight.id === selectedFlight.id) ?? null
       : null
 
-    const cappedCandidates = [
+    return [
       ...(selectedInView ? [selectedInView] : []),
       ...orderedCandidates.filter((flight) => !selectedInView || flight.id !== selectedInView.id),
-    ].slice(0, MAX_MERCATOR_RENDERED_FLIGHTS)
-
-    const targetCount = mercatorRenderTarget(viewState.zoom)
-
-    setRenderedMercatorFlights((previousFlights) => {
-      const candidateById = new globalThis.Map(cappedCandidates.map((flight) => [flight.id, flight]))
-      const keptFlights = previousFlights
-        .filter((flight) => candidateById.has(flight.id))
-        .map((flight) => candidateById.get(flight.id) as Flight)
-
-      if (!zoomingIn && keptFlights.length > 0) {
-        const nextFlights = keptFlights.slice(0, targetCount)
-        return sameFlightsById(previousFlights, nextFlights) ? previousFlights : nextFlights
-      }
-
-      const keptIds = new Set(keptFlights.map((flight) => flight.id))
-      const missingFlights = cappedCandidates.filter((flight) => !keptIds.has(flight.id))
-      const remainingCapacity = Math.max(0, targetCount - keptFlights.length)
-      const newFlights = missingFlights.slice(0, remainingCapacity)
-
-      const nextFlights = keepSelectedFlightVisible(keptFlights.concat(newFlights), selectedFlight)
-      return sameFlightsById(previousFlights, nextFlights) ? previousFlights : nextFlights
-    })
+    ].slice(0, Math.min(MAX_MERCATOR_RENDERED_FLIGHTS, mercatorRenderTarget(viewState.zoom)))
   }, [isGlobeProjection, selectedFlight, viewState.latitude, viewState.longitude, viewState.zoom, visibleFlights])
 
   const getFlightAngleMercator = useCallback(
@@ -434,6 +355,28 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
     (flight: Flight) => (flight.id === hoveredFlightId ? mercatorIconSize + 3 : mercatorIconSize),
     [hoveredFlightId, mercatorIconSize],
   )
+  const handleMercatorLayerHover = useCallback((info: PickingInfo<Flight>) => {
+    if (!info.object) {
+      setHoveredFlightId(null)
+      setHoveredIcaoTooltip(null)
+      return
+    }
+
+    setHoveredFlightId(info.object.id)
+    const icao24 = getFlightIcao24(info.object)
+    if (icao24) {
+      setHoveredIcaoTooltip({ text: icao24, x: info.x, y: info.y })
+    } else {
+      setHoveredIcaoTooltip(null)
+    }
+  }, [getFlightIcao24])
+  const handleMercatorLayerClick = useCallback((info: PickingInfo<Flight>, event: { stopPropagation?: () => void }) => {
+    event.stopPropagation?.()
+    setHoveredFlightId(null)
+    setHoveredIcaoTooltip(null)
+    setSelectedFlightId(info.object?.id ?? null)
+    return true
+  }, [])
   const mercatorLayer = useMemo(
     () =>
       new IconLayer<Flight>({
@@ -459,33 +402,15 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
           getColor: [hoveredFlightId, selectedFlight?.id],
           getSize: [hoveredFlightId, mercatorIconSize],
         },
-        onHover: (info) => {
-          if (!info.object) {
-            setHoveredFlightId(null)
-            setHoveredIcaoTooltip(null)
-            return
-          }
-
-          setHoveredFlightId(info.object.id)
-          const icao24 = getFlightIcao24(info.object)
-          if (icao24) {
-            setHoveredIcaoTooltip({ text: icao24, x: info.x, y: info.y })
-          } else {
-            setHoveredIcaoTooltip(null)
-          }
-        },
-        onClick: (info) => {
-          suppressNextMapClickClearRef.current = true
-          setHoveredFlightId(null)
-          setHoveredIcaoTooltip(null)
-          setSelectedFlight(info.object ?? null)
-        },
+        onHover: handleMercatorLayerHover,
+        onClick: handleMercatorLayerClick,
       }),
     [
       getFlightAngleMercator,
       getFlightColorMercator,
-      getFlightIcao24,
       getFlightSizeMercator,
+      handleMercatorLayerClick,
+      handleMercatorLayerHover,
       hoveredFlightId,
       mercatorIconSize,
       renderedMercatorFlights,
@@ -494,8 +419,8 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   )
   const deckLayers = useMemo(() => [mercatorLayer], [mercatorLayer])
 
-  const syncProjectionWithZoom = (zoom: number) => {
-    const map = mapRef.current?.getMap()
+  const syncProjectionWithZoom = useCallback((zoom: number) => {
+    const map = mapInstance?.getMap()
     if (!map) return
 
     const currentProjection = normalizeProjectionType(map.getProjection()?.type)
@@ -509,10 +434,10 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
     }
 
     setProjectionType((previous) => (previous === nextProjection ? previous : nextProjection))
-  }
+  }, [mapInstance])
 
-  const updateBoundsFromMap = () => {
-    const map = mapRef.current?.getMap()
+  const updateBoundsFromMap = useCallback(() => {
+    const map = mapInstance?.getMap()
     if (!map) {
       return
     }
@@ -524,18 +449,67 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
       south: nextBounds.getSouth(),
       north: nextBounds.getNorth(),
     })
-  }
+  }, [mapInstance])
+  const updateGlobeSamplingAnchor = useCallback((nextViewState: typeof viewState) => {
+    if (!isGlobeProjection) {
+      return
+    }
+
+    const zoomBucket = Math.floor(nextViewState.zoom * 2) / 2
+    setGlobeSamplingAnchor((previous) => {
+      if (previous.zoomBucket === zoomBucket) {
+        return previous
+      }
+
+      return {
+        longitude: nextViewState.longitude,
+        latitude: nextViewState.latitude,
+        zoomBucket,
+      }
+    })
+  }, [isGlobeProjection])
+  const handleMapLoad = useCallback(() => {
+    syncProjectionWithZoom(INITIAL_ZOOM)
+    updateBoundsFromMap()
+  }, [syncProjectionWithZoom, updateBoundsFromMap])
+  const handleMapBackgroundClick = useCallback(() => {
+    setHoveredFlightId(null)
+    setHoveredIcaoTooltip(null)
+    setSelectedFlightId(null)
+  }, [])
+  const updateHoveredTooltipFromPointer = useCallback((flight: Flight, element: HTMLElement, clientX: number, clientY: number) => {
+    const icao24 = getFlightIcao24(flight)
+    if (!icao24) {
+      setHoveredIcaoTooltip(null)
+      return
+    }
+
+    const rect = element.getBoundingClientRect()
+    setHoveredIcaoTooltip({
+      text: icao24,
+      x: clientX - rect.left,
+      y: clientY - rect.top,
+    })
+  }, [getFlightIcao24])
+  const handleGlobeMarkerMouseEnter = useCallback((flight: Flight, element: HTMLElement, clientX: number, clientY: number) => {
+    setHoveredFlightId(flight.id)
+    updateHoveredTooltipFromPointer(flight, element, clientX, clientY)
+  }, [updateHoveredTooltipFromPointer])
+  const handleGlobeMarkerMouseMove = useCallback((flight: Flight, element: HTMLElement, clientX: number, clientY: number) => {
+    updateHoveredTooltipFromPointer(flight, element, clientX, clientY)
+  }, [updateHoveredTooltipFromPointer])
+  const handleGlobeMarkerClick = useCallback((flight: Flight) => {
+    setHoveredFlightId(null)
+    setHoveredIcaoTooltip(null)
+    setSelectedFlightId(flight.id)
+  }, [])
 
   return (
-    <div ref={mapWrapperRef} className="flight-map-wrapper">
+    <div className="flight-map-wrapper">
       <Map
-        ref={mapRef}
+        ref={setMapInstance}
         initialViewState={{ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM }}
-        onLoad={() => {
-          syncProjectionWithZoom(INITIAL_ZOOM)
-          setProjectionType(normalizeProjectionType(mapRef.current?.getMap().getProjection()?.type))
-          updateBoundsFromMap()
-        }}
+        onLoad={handleMapLoad}
         onMove={(event) => {
           if (hoveredFlightId) {
             setHoveredFlightId(null)
@@ -578,18 +552,11 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
             return sameLongitude && sameLatitude && sameZoom && sameBearing ? previous : next
           })
           syncProjectionWithZoom(event.viewState.zoom)
+          updateGlobeSamplingAnchor(event.viewState)
           updateBoundsFromMap()
         }}
         dragRotate={isGlobeProjection}
-        onClick={() => {
-          if (suppressNextMapClickClearRef.current) {
-            suppressNextMapClickClearRef.current = false
-            return
-          }
-          setHoveredFlightId(null)
-          setHoveredIcaoTooltip(null)
-          setSelectedFlight(null)
-        }}
+        onClick={handleMapBackgroundClick}
         touchPitch={false}
         pitchWithRotate={false}
         maxPitch={0}
@@ -597,8 +564,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >
         <div className="flight-counter">
-          Flights: {isGlobeProjection ? renderedGlobeFlights.length : renderedMercatorFlights.length}
-          {isGlobeProjection ? ` / ${globeSamplePool.length}` : ` / ${mercatorFlightsTotal}`} / {flights.length}
+          Flights: {isGlobeProjection ? renderedGlobeFlights.length : renderedMercatorFlights.length} / {flights.length}
         </div>
         {isGlobeProjection
           ? renderedGlobeFlights.map((flight) => (
@@ -613,31 +579,10 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
                   className={`flight-marker-button${selectedFlight?.id === flight.id ? ' flight-marker-button--selected' : ''}`}
                   aria-label={`Show details for ${flight.callsign || flight.id}`}
                   onMouseEnter={(event) => {
-                    setHoveredFlightId(flight.id)
-                    const icao24 = getFlightIcao24(flight)
-                    if (!icao24 || !mapWrapperRef.current) {
-                      setHoveredIcaoTooltip(null)
-                      return
-                    }
-                    const rect = mapWrapperRef.current.getBoundingClientRect()
-                    setHoveredIcaoTooltip({
-                      text: icao24,
-                      x: event.clientX - rect.left,
-                      y: event.clientY - rect.top,
-                    })
+                    handleGlobeMarkerMouseEnter(flight, event.currentTarget, event.clientX, event.clientY)
                   }}
                   onMouseMove={(event) => {
-                    const icao24 = getFlightIcao24(flight)
-                    if (!icao24 || !mapWrapperRef.current) {
-                      setHoveredIcaoTooltip(null)
-                      return
-                    }
-                    const rect = mapWrapperRef.current.getBoundingClientRect()
-                    setHoveredIcaoTooltip({
-                      text: icao24,
-                      x: event.clientX - rect.left,
-                      y: event.clientY - rect.top,
-                    })
+                    handleGlobeMarkerMouseMove(flight, event.currentTarget, event.clientX, event.clientY)
                   }}
                   onMouseLeave={() => {
                     setHoveredFlightId(null)
@@ -645,10 +590,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
                   }}
                   onClick={(event) => {
                     event.stopPropagation()
-                    suppressNextMapClickClearRef.current = true
-                    setHoveredFlightId(null)
-                    setHoveredIcaoTooltip(null)
-                    setSelectedFlight(flight)
+                    handleGlobeMarkerClick(flight)
                   }}
                 >
                   <img
@@ -677,7 +619,7 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
             {hoveredIcaoTooltip.text}
           </div>
         ) : null}
-        {selectedFlight ? <FlightInfoCard flight={selectedFlight} onClose={() => setSelectedFlight(null)} /> : null}
+        {selectedFlight ? <FlightInfoCard flight={selectedFlight} onClose={() => setSelectedFlightId(null)} /> : null}
       </Map>
     </div>
   )
