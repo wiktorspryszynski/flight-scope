@@ -1,12 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
-import type { PickingInfo } from '@deck.gl/core'
-import { IconLayer } from '@deck.gl/layers'
-import { MapboxOverlay } from '@deck.gl/mapbox'
-import type { MapboxOverlayProps } from '@deck.gl/mapbox'
-import Map, { Marker, type MapRef, useControl } from 'react-map-gl/maplibre'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Map, { type MapRef } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import type { GeoJSONSource, MapLayerMouseEvent } from 'maplibre-gl'
 import type { Flight } from '../types/flight'
-import airplaneIcon from '../assets/icons/airplane.png'
 import FlightInfoCard from './FlightInfoCard'
 
 type FlightsMapProps = {
@@ -18,545 +14,203 @@ type ProjectionType = 'globe' | 'mercator'
 
 const INITIAL_ZOOM = 3
 const MERCATOR_ZOOM_THRESHOLD = 5
-const GLOBE_VISIBILITY_DOT_THRESHOLD = 0.55
-const ICON_MAPPING = {
-  plane: {
-    x: 0,
-    y: 0,
-    width: 64,
-    height: 64,
-    anchorX: 32,
-    anchorY: 32,
-    mask: true,
-  },
-} as const
-const ICON_KEY = 'plane'
-const ICON_LAYER_PICKABLE = true
-const MAX_MERCATOR_RENDERED_FLIGHTS = 800
-const BASE_MERCATOR_RENDERED_FLIGHTS = 220
-const RENDERED_FLIGHTS_PER_ZOOM_LEVEL = 140
-const MAX_GLOBE_RENDERED_FLIGHTS = 520
-const BASE_GLOBE_RENDERED_FLIGHTS = 140
-const GLOBE_RENDERED_FLIGHTS_PER_ZOOM_LEVEL = 70
-const GLOBE_FOCUS_ZOOM_THRESHOLD = 4.8
-const MIN_ICON_SIZE_PX = 12
-const MAX_ICON_SIZE_PX = 24
-const ICON_DEFAULT_COLOR: [number, number, number, number] = [255, 90, 0, 230]
-const ICON_HOVER_COLOR: [number, number, number, number] = [168, 85, 247, 255]
+const MAX_RENDERED_FLIGHTS = 6000
 const ICAO24_REGEX = /^[0-9a-f]{6}$/i
+const SOURCE_ID = 'flights'
+const LAYER_ID = 'flights-icons'
+const ICON_NAME = 'airplane'
+const COLOR_DEFAULT = '#ff5a00'
+const COLOR_ACTIVE = '#a855f7'
 
-const getFlightPosition = (flight: Flight): [number, number] => [flight.longitude, flight.latitude]
-const getFlightIcon = () => ICON_KEY
-const normalizeHeading = (heading?: number) => {
-  if (!Number.isFinite(heading)) {
-    return 0
-  }
+// Top-down airplane silhouette pointing north (0°). White fill on transparent background
+// enables SDF colorization via icon-color.
+const AIRPLANE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32"><path fill="white" d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`
 
-  return ((heading as number) % 360 + 360) % 360
-}
+const buildGeoJson = (flights: Flight[]) => ({
+  type: 'FeatureCollection' as const,
+  features: flights.slice(0, MAX_RENDERED_FLIGHTS).map((flight) => ({
+    type: 'Feature' as const,
+    geometry: {
+      type: 'Point' as const,
+      coordinates: [flight.longitude, flight.latitude] as [number, number],
+    },
+    properties: {
+      id: flight.id,
+      callsign: flight.callsign,
+      heading: flight.heading ?? 0,
+    },
+  })),
+})
 
-type MapBounds = {
-  west: number
-  east: number
-  south: number
-  north: number
-}
+// Returns a MapLibre expression that colors active (selected/hovered) flights purple,
+// all others orange. Uses a sentinel that never matches a real ICAO24 when nothing is active.
+const buildColorExpression = (selectedId: string | null, hoveredId: string | null) => [
+  'case',
+  [
+    'any',
+    ['==', ['get', 'id'], selectedId ?? '\x00'],
+    ['==', ['get', 'id'], hoveredId ?? '\x00'],
+  ],
+  COLOR_ACTIVE,
+  COLOR_DEFAULT,
+]
 
-const toRadians = (value: number) => (value * Math.PI) / 180
-
-const isVisibleOnGlobe = (
-  markerLongitude: number,
-  markerLatitude: number,
-  centerLongitude: number,
-  centerLatitude: number,
-) => {
-  const markerLatRad = toRadians(markerLatitude)
-  const markerLonRad = toRadians(markerLongitude)
-  const centerLatRad = toRadians(centerLatitude)
-  const centerLonRad = toRadians(centerLongitude)
-
-  const markerX = Math.cos(markerLatRad) * Math.cos(markerLonRad)
-  const markerY = Math.cos(markerLatRad) * Math.sin(markerLonRad)
-  const markerZ = Math.sin(markerLatRad)
-
-  const centerX = Math.cos(centerLatRad) * Math.cos(centerLonRad)
-  const centerY = Math.cos(centerLatRad) * Math.sin(centerLonRad)
-  const centerZ = Math.sin(centerLatRad)
-
-  const dotProduct = markerX * centerX + markerY * centerY + markerZ * centerZ
-  return dotProduct > GLOBE_VISIBILITY_DOT_THRESHOLD
-}
-
-const isWithinBounds = (longitude: number, latitude: number, bounds: MapBounds) => {
-  if (latitude < bounds.south || latitude > bounds.north) {
-    return false
-  }
-
-  // Bounds can cross antimeridian: west > east means two joined ranges.
-  if (bounds.west <= bounds.east) {
-    return longitude >= bounds.west && longitude <= bounds.east
-  }
-
-  return longitude >= bounds.west || longitude <= bounds.east
-}
-
-const shortestLongitudeDelta = (longitudeA: number, longitudeB: number) => {
-  const rawDelta = Math.abs(longitudeA - longitudeB)
-  return Math.min(rawDelta, 360 - rawDelta)
-}
-
-const distanceScoreToCenter = (flight: Flight, centerLongitude: number, centerLatitude: number) => {
-  const latDelta = flight.latitude - centerLatitude
-  const lonDelta = shortestLongitudeDelta(flight.longitude, centerLongitude)
-  return latDelta * latDelta + lonDelta * lonDelta
-}
-
-const mercatorRenderTarget = (zoom: number) => {
-  const zoomDelta = Math.max(0, Math.floor(zoom - MERCATOR_ZOOM_THRESHOLD))
-  const target = BASE_MERCATOR_RENDERED_FLIGHTS + zoomDelta * RENDERED_FLIGHTS_PER_ZOOM_LEVEL
-  return Math.min(MAX_MERCATOR_RENDERED_FLIGHTS, target)
-}
-
-const globeRenderTarget = (zoom: number) => {
-  const zoomDelta = Math.max(0, Math.floor(zoom))
-  const target = BASE_GLOBE_RENDERED_FLIGHTS + zoomDelta * GLOBE_RENDERED_FLIGHTS_PER_ZOOM_LEVEL
-  return Math.min(MAX_GLOBE_RENDERED_FLIGHTS, target)
-}
-
-const iconSizeForZoom = (zoom: number) => {
-  if (zoom <= 4) return MIN_ICON_SIZE_PX
-  if (zoom >= 8) return MAX_ICON_SIZE_PX
-  const t = (zoom - 4) / 4
-  return Math.round(MIN_ICON_SIZE_PX + t * (MAX_ICON_SIZE_PX - MIN_ICON_SIZE_PX))
-}
-
-const pickEvenlyByStride = <T,>(items: T[], targetCount: number) => {
-  if (items.length <= targetCount) {
-    return items
-  }
-
-  const result: T[] = []
-  const step = items.length / targetCount
-  let cursor = 0
-
-  for (let i = 0; i < targetCount; i += 1) {
-    result.push(items[Math.floor(cursor)])
-    cursor += step
-  }
-
-  return result
-}
-
-const selectEvenlyDistributedFlights = (
-  sourceFlights: Flight[],
-  targetCount: number,
-  centerLongitude: number,
-  centerLatitude: number,
-  zoom: number,
-) => {
-  if (sourceFlights.length <= targetCount) {
-    return sourceFlights
-  }
-
-  const gridColumns = Math.max(6, Math.round(Math.sqrt(targetCount * 2)))
-  const gridRows = Math.max(3, Math.round(gridColumns / 2))
-  const lonCellSize = 360 / gridColumns
-  const latCellSize = 180 / gridRows
-
-  const flightsByCell = new globalThis.Map<string, Flight[]>()
-
-  for (const flight of sourceFlights) {
-    const lonIndex = Math.max(0, Math.min(gridColumns - 1, Math.floor((flight.longitude + 180) / lonCellSize)))
-    const latIndex = Math.max(0, Math.min(gridRows - 1, Math.floor((flight.latitude + 90) / latCellSize)))
-    const cellKey = `${latIndex}:${lonIndex}`
-    const cellFlights = flightsByCell.get(cellKey)
-    if (cellFlights) {
-      cellFlights.push(flight)
-    } else {
-      flightsByCell.set(cellKey, [flight])
-    }
-  }
-
-  const orderedCellEntries = [...flightsByCell.entries()]
-    .map(([cellKey, flightsInCell]) => ({
-      cellKey,
-      flights: flightsInCell.sort(
-        (flightA, flightB) =>
-          distanceScoreToCenter(flightA, centerLongitude, centerLatitude) -
-          distanceScoreToCenter(flightB, centerLongitude, centerLatitude),
-      ),
-    }))
-    .sort((a, b) => a.cellKey.localeCompare(b.cellKey))
-
-  const topPerCell = orderedCellEntries.map((entry) => entry.flights[0])
-
-  if (topPerCell.length >= targetCount) {
-    if (zoom >= GLOBE_FOCUS_ZOOM_THRESHOLD) {
-      return topPerCell
-        .sort(
-          (flightA, flightB) =>
-            distanceScoreToCenter(flightA, centerLongitude, centerLatitude) -
-            distanceScoreToCenter(flightB, centerLongitude, centerLatitude),
-        )
-        .slice(0, targetCount)
-    }
-
-    return pickEvenlyByStride(topPerCell, targetCount)
-  }
-
-  const selected = [...topPerCell]
-  const selectedIds = new Set(selected.map((flight) => flight.id))
-  const maxDepth = Math.max(...orderedCellEntries.map((entry) => entry.flights.length))
-
-  for (let depth = 1; depth < maxDepth && selected.length < targetCount; depth += 1) {
-    if (zoom >= GLOBE_FOCUS_ZOOM_THRESHOLD) {
-      const remaining = orderedCellEntries
-        .map((entry) => entry.flights[depth])
-        .filter((flight): flight is Flight => Boolean(flight) && !selectedIds.has(flight.id))
-        .sort(
-          (flightA, flightB) =>
-            distanceScoreToCenter(flightA, centerLongitude, centerLatitude) -
-            distanceScoreToCenter(flightB, centerLongitude, centerLatitude),
-        )
-
-      for (const flight of remaining) {
-        if (selected.length >= targetCount) {
-          break
-        }
-        selected.push(flight)
-        selectedIds.add(flight.id)
-      }
-    } else {
-      for (const entry of orderedCellEntries) {
-        if (selected.length >= targetCount) {
-          break
-        }
-        const candidate = entry.flights[depth]
-        if (!candidate || selectedIds.has(candidate.id)) {
-          continue
-        }
-        selected.push(candidate)
-        selectedIds.add(candidate.id)
-      }
-    }
-  }
-
-  return selected.slice(0, targetCount)
-}
-
-const keepSelectedFlightVisible = (flights: Flight[], selectedFlight: Flight | null) => {
-  if (!selectedFlight) {
-    return flights
-  }
-
-  const selectedIndex = flights.findIndex((flight) => flight.id === selectedFlight.id)
-  if (selectedIndex >= 0) {
-    return flights
-  }
-
-  return [selectedFlight, ...flights]
-}
-
-type DeckGLOverlayProps = Omit<MapboxOverlayProps, 'interleaved'>
-
-function DeckGLOverlay(props: DeckGLOverlayProps) {
-  const overlay = useControl<MapboxOverlay>(() => new MapboxOverlay({ interleaved: false, ...props }))
-  overlay.setProps(props)
-  return null
-}
-
-const normalizeProjectionType = (projectionType: unknown): ProjectionType =>
-  projectionType === 'mercator' ? 'mercator' : 'globe'
+const normalizeProjection = (type: unknown): ProjectionType =>
+  type === 'mercator' ? 'mercator' : 'globe'
 
 function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
-  const [viewState, setViewState] = useState({ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM, bearing: 0 })
-  const [bounds, setBounds] = useState<MapBounds | null>(null)
+  const mapRef = useRef<MapRef | null>(null)
+  const flightsRef = useRef(flights)
+
   const [projectionType, setProjectionType] = useState<ProjectionType>(
     INITIAL_ZOOM >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe',
   )
   const [hoveredFlightId, setHoveredFlightId] = useState<string | null>(null)
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null)
-  const [hoveredIcaoTooltip, setHoveredIcaoTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
-  const [globeSamplingAnchor, setGlobeSamplingAnchor] = useState({
-    longitude: 20,
-    latitude: 50,
-    zoomBucket: Math.floor(INITIAL_ZOOM * 2) / 2,
-  })
-  const [mapInstance, setMapInstance] = useState<MapRef | null>(null)
+  const [hoveredIcaoTooltip, setHoveredIcaoTooltip] = useState<{
+    text: string
+    x: number
+    y: number
+  } | null>(null)
+
   const isGlobeProjection = projectionType === 'globe'
+
   const selectedFlight = useMemo(
-    () => (selectedFlightId ? flights.find((flight) => flight.id === selectedFlightId) ?? null : null),
+    () => (selectedFlightId ? flights.find((f) => f.id === selectedFlightId) ?? null : null),
     [flights, selectedFlightId],
   )
 
-  const visibleFlights = useMemo(() => {
-    if (!bounds) {
-      return flights
-    }
+  useEffect(() => {
+    flightsRef.current = flights
+  }, [flights])
 
-    return flights.filter((flight) => isWithinBounds(flight.longitude, flight.latitude, bounds))
-  }, [bounds, flights])
+  // Push updated flight positions into the GeoJSON source — no layer rebuild needed.
+  useEffect(() => {
+    const source = mapRef.current?.getMap().getSource(SOURCE_ID) as GeoJSONSource | undefined
+    source?.setData(buildGeoJson(flights))
+  }, [flights])
 
-  const globeSamplePool = useMemo(() => {
-    const sampledFlights = selectEvenlyDistributedFlights(
-      flights,
-      globeRenderTarget(viewState.zoom),
-      globeSamplingAnchor.longitude,
-      globeSamplingAnchor.latitude,
-      viewState.zoom,
-    )
-    return keepSelectedFlightVisible(sampledFlights, selectedFlight)
-  }, [flights, globeSamplingAnchor.latitude, globeSamplingAnchor.longitude, selectedFlight, viewState.zoom])
-  const renderedGlobeFlights = useMemo(
-    () =>
-      globeSamplePool.filter((flight) =>
-        isVisibleOnGlobe(flight.longitude, flight.latitude, viewState.longitude, viewState.latitude),
-      ),
-    [globeSamplePool, viewState.latitude, viewState.longitude],
-  )
-  const renderedMercatorFlights = useMemo(() => {
-    if (isGlobeProjection) {
-      return []
-    }
-
-    const orderedCandidates = [...visibleFlights]
-      .sort(
-        (flightA, flightB) =>
-          distanceScoreToCenter(flightA, viewState.longitude, viewState.latitude) -
-          distanceScoreToCenter(flightB, viewState.longitude, viewState.latitude),
-      )
-
-    const selectedInView = selectedFlight
-      ? orderedCandidates.find((flight) => flight.id === selectedFlight.id) ?? null
-      : null
-
-    return [
-      ...(selectedInView ? [selectedInView] : []),
-      ...orderedCandidates.filter((flight) => !selectedInView || flight.id !== selectedInView.id),
-    ].slice(0, Math.min(MAX_MERCATOR_RENDERED_FLIGHTS, mercatorRenderTarget(viewState.zoom)))
-  }, [isGlobeProjection, selectedFlight, viewState.latitude, viewState.longitude, viewState.zoom, visibleFlights])
-
-  const getFlightAngleMercator = useCallback(
-    (flight: Flight) => normalizeHeading(-(flight.heading ?? 0)),
-    [],
-  )
-  const getFlightAngleGlobe = useCallback(
-    (flight: Flight) => normalizeHeading((flight.heading ?? 0) - viewState.bearing),
-    [viewState.bearing],
-  )
-  const mercatorIconSize = iconSizeForZoom(viewState.zoom)
-  const globeIconSize = iconSizeForZoom(viewState.zoom - 0.5)
-  const getFlightIcao24 = useCallback((flight: Flight) => (ICAO24_REGEX.test(flight.id) ? flight.id.toUpperCase() : null), [])
-  const getFlightColorMercator = useCallback(
-    (flight: Flight) => (flight.id === hoveredFlightId || flight.id === selectedFlight?.id ? ICON_HOVER_COLOR : ICON_DEFAULT_COLOR),
-    [hoveredFlightId, selectedFlight?.id],
-  )
-  const getFlightSizeMercator = useCallback(
-    (flight: Flight) => (flight.id === hoveredFlightId ? mercatorIconSize + 3 : mercatorIconSize),
-    [hoveredFlightId, mercatorIconSize],
-  )
-  const handleMercatorLayerHover = useCallback((info: PickingInfo<Flight>) => {
-    if (!info.object) {
-      setHoveredFlightId(null)
-      setHoveredIcaoTooltip(null)
-      return
-    }
-
-    setHoveredFlightId(info.object.id)
-    const icao24 = getFlightIcao24(info.object)
-    if (icao24) {
-      setHoveredIcaoTooltip({ text: icao24, x: info.x, y: info.y })
-    } else {
-      setHoveredIcaoTooltip(null)
-    }
-  }, [getFlightIcao24])
-  const handleMercatorLayerClick = useCallback((info: PickingInfo<Flight>, event: { stopPropagation?: () => void }) => {
-    event.stopPropagation?.()
-    setHoveredFlightId(null)
-    setHoveredIcaoTooltip(null)
-    setSelectedFlightId(info.object?.id ?? null)
-    return true
-  }, [])
-  const mercatorLayer = useMemo(
-    () =>
-      new IconLayer<Flight>({
-        id: 'flights-icons-mercator',
-        data: renderedMercatorFlights,
-        pickable: ICON_LAYER_PICKABLE,
-        autoHighlight: true,
-        highlightColor: ICON_HOVER_COLOR,
-        billboard: true,
-        iconAtlas: airplaneIcon,
-        iconMapping: ICON_MAPPING,
-        sizeUnits: 'pixels',
-        getIcon: getFlightIcon,
-        getSize: getFlightSizeMercator,
-        getPosition: getFlightPosition,
-        getColor: getFlightColorMercator,
-        getAngle: getFlightAngleMercator,
-        transitions: {
-          getColor: 140,
-          getSize: 140,
-        },
-        updateTriggers: {
-          getColor: [hoveredFlightId, selectedFlight?.id],
-          getSize: [hoveredFlightId, mercatorIconSize],
-        },
-        onHover: handleMercatorLayerHover,
-        onClick: handleMercatorLayerClick,
-      }),
-    [
-      getFlightAngleMercator,
-      getFlightColorMercator,
-      getFlightSizeMercator,
-      handleMercatorLayerClick,
-      handleMercatorLayerHover,
-      hoveredFlightId,
-      mercatorIconSize,
-      renderedMercatorFlights,
-      selectedFlight?.id,
-    ],
-  )
-  const deckLayers = useMemo(() => [mercatorLayer], [mercatorLayer])
+  // Update icon colors when selection/hover changes — only a paint property update, no re-upload.
+  useEffect(() => {
+    const map = mapRef.current?.getMap()
+    if (!map?.getLayer(LAYER_ID)) return
+    map.setPaintProperty(LAYER_ID, 'icon-color', buildColorExpression(selectedFlightId, hoveredFlightId))
+  }, [selectedFlightId, hoveredFlightId])
 
   const syncProjectionWithZoom = useCallback((zoom: number) => {
-    const map = mapInstance?.getMap()
+    const map = mapRef.current?.getMap()
     if (!map) return
 
-    const currentProjection = normalizeProjectionType(map.getProjection()?.type)
-    const nextProjection: ProjectionType = zoom >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe'
+    const target: ProjectionType = zoom >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe'
+    const current = normalizeProjection(map.getProjection()?.type)
 
-    if (currentProjection !== nextProjection) {
-      map.setProjection({ type: nextProjection })
-      if (nextProjection === 'mercator') {
-        map.easeTo({ bearing: 0, pitch: 0, duration: 0 })
-      }
+    if (current !== target) {
+      map.setProjection({ type: target })
+      if (target === 'mercator') map.easeTo({ bearing: 0, pitch: 0, duration: 0 })
     }
 
-    setProjectionType((previous) => (previous === nextProjection ? previous : nextProjection))
-  }, [mapInstance])
+    setProjectionType((prev) => (prev === target ? prev : target))
+  }, [])
 
-  const updateBoundsFromMap = useCallback(() => {
-    const map = mapInstance?.getMap()
-    if (!map) {
-      return
-    }
-
-    const nextBounds = map.getBounds()
-    setBounds({
-      west: nextBounds.getWest(),
-      east: nextBounds.getEast(),
-      south: nextBounds.getSouth(),
-      north: nextBounds.getNorth(),
-    })
-  }, [mapInstance])
-  const updateGlobeSamplingAnchor = useCallback((nextViewState: typeof viewState) => {
-    if (!isGlobeProjection) {
-      return
-    }
-
-    const zoomBucket = Math.floor(nextViewState.zoom * 2) / 2
-    setGlobeSamplingAnchor((previous) => {
-      if (previous.zoomBucket === zoomBucket) {
-        return previous
-      }
-
-      return {
-        longitude: nextViewState.longitude,
-        latitude: nextViewState.latitude,
-        zoomBucket,
-      }
-    })
-  }, [isGlobeProjection])
-  const handleMapLoad = useCallback(() => {
-    syncProjectionWithZoom(INITIAL_ZOOM)
-    updateBoundsFromMap()
-  }, [syncProjectionWithZoom, updateBoundsFromMap])
-  const handleMapBackgroundClick = useCallback(() => {
+  // Stable MapLibre event handlers — registered once in handleMapLoad.
+  const handleLayerClick = useCallback((e: MapLayerMouseEvent) => {
+    const id: string | null = e.features?.[0]?.properties?.id ?? null
+    setSelectedFlightId(id)
     setHoveredFlightId(null)
     setHoveredIcaoTooltip(null)
+  }, [])
+
+  const handleLayerHover = useCallback((e: MapLayerMouseEvent) => {
+    const id: string = e.features?.[0]?.properties?.id ?? ''
+    setHoveredFlightId(id || null)
+    const icao24 = id && ICAO24_REGEX.test(id) ? id.toUpperCase() : null
+    setHoveredIcaoTooltip(icao24 ? { text: icao24, x: e.point.x, y: e.point.y } : null)
+    const canvas = mapRef.current?.getMap().getCanvas()
+    if (canvas) canvas.style.cursor = 'pointer'
+  }, [])
+
+  const handleLayerLeave = useCallback(() => {
+    setHoveredFlightId(null)
+    setHoveredIcaoTooltip(null)
+    const canvas = mapRef.current?.getMap().getCanvas()
+    if (canvas) canvas.style.cursor = ''
+  }, [])
+
+  // Background click: deselect only if the click didn't land on a flight icon.
+  const handleMapClick = useCallback((e: MapLayerMouseEvent) => {
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    if (map.queryRenderedFeatures(e.point, { layers: [LAYER_ID] }).length > 0) return
     setSelectedFlightId(null)
-  }, [])
-  const updateHoveredTooltipFromPointer = useCallback((flight: Flight, element: HTMLElement, clientX: number, clientY: number) => {
-    const icao24 = getFlightIcao24(flight)
-    if (!icao24) {
-      setHoveredIcaoTooltip(null)
-      return
-    }
-
-    const rect = element.getBoundingClientRect()
-    setHoveredIcaoTooltip({
-      text: icao24,
-      x: clientX - rect.left,
-      y: clientY - rect.top,
-    })
-  }, [getFlightIcao24])
-  const handleGlobeMarkerMouseEnter = useCallback((flight: Flight, element: HTMLElement, clientX: number, clientY: number) => {
-    setHoveredFlightId(flight.id)
-    updateHoveredTooltipFromPointer(flight, element, clientX, clientY)
-  }, [updateHoveredTooltipFromPointer])
-  const handleGlobeMarkerMouseMove = useCallback((flight: Flight, element: HTMLElement, clientX: number, clientY: number) => {
-    updateHoveredTooltipFromPointer(flight, element, clientX, clientY)
-  }, [updateHoveredTooltipFromPointer])
-  const handleGlobeMarkerClick = useCallback((flight: Flight) => {
     setHoveredFlightId(null)
     setHoveredIcaoTooltip(null)
-    setSelectedFlightId(flight.id)
   }, [])
+
+  const handleMapLoad = useCallback(() => {
+    const map = mapRef.current?.getMap()
+    if (!map) return
+
+    const img = new Image(32, 32)
+    img.onload = () => {
+      if (!map.hasImage(ICON_NAME)) {
+        // sdf: true lets MapLibre colorize the icon via the icon-color paint property.
+        map.addImage(ICON_NAME, img, { sdf: true })
+      }
+
+      if (!map.getSource(SOURCE_ID)) {
+        map.addSource(SOURCE_ID, {
+          type: 'geojson',
+          data: buildGeoJson(flightsRef.current),
+        })
+      }
+
+      if (!map.getLayer(LAYER_ID)) {
+        map.addLayer({
+          id: LAYER_ID,
+          type: 'symbol',
+          source: SOURCE_ID,
+          layout: {
+            'icon-image': ICON_NAME,
+            // Scale icon with zoom so it doesn't clutter at global view.
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.38, 6, 0.52, 10, 0.72],
+            // Rotate the icon to match geographic heading (degrees clockwise from north).
+            'icon-rotate': ['get', 'heading'],
+            // 'map' alignment keeps heading correct in both globe and mercator projections.
+            'icon-rotation-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any,
+          paint: {
+            'icon-color': COLOR_DEFAULT,
+            'icon-opacity': 0.9,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any,
+        })
+
+        map.on('click', LAYER_ID, handleLayerClick)
+        map.on('mousemove', LAYER_ID, handleLayerHover)
+        map.on('mouseleave', LAYER_ID, handleLayerLeave)
+      }
+
+      syncProjectionWithZoom(INITIAL_ZOOM)
+    }
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(AIRPLANE_SVG)
+  }, [handleLayerClick, handleLayerHover, handleLayerLeave, syncProjectionWithZoom])
 
   return (
     <div className="flight-map-wrapper">
       <Map
-        ref={setMapInstance}
+        ref={mapRef}
         initialViewState={{ longitude: 20, latitude: 50, zoom: INITIAL_ZOOM }}
         onLoad={handleMapLoad}
-        onMove={(event) => {
-          if (hoveredFlightId) {
-            setHoveredFlightId(null)
-          }
-          if (hoveredIcaoTooltip) {
-            setHoveredIcaoTooltip(null)
-          }
-          setViewState((previous) => {
-            const next = {
-              longitude: event.viewState.longitude,
-              latitude: event.viewState.latitude,
-              zoom: event.viewState.zoom,
-              bearing: event.viewState.bearing,
-            }
-
-            const sameLongitude = Math.abs(previous.longitude - next.longitude) < 1e-7
-            const sameLatitude = Math.abs(previous.latitude - next.latitude) < 1e-7
-            const sameZoom = Math.abs(previous.zoom - next.zoom) < 1e-7
-            const sameBearing = Math.abs(previous.bearing - next.bearing) < 1e-7
-
-            return sameLongitude && sameLatitude && sameZoom && sameBearing ? previous : next
-          })
-        }}
-        onMoveEnd={(event) => {
+        onClick={handleMapClick}
+        onDragStart={() => {
           setHoveredFlightId(null)
           setHoveredIcaoTooltip(null)
-          setViewState((previous) => {
-            const next = {
-              longitude: event.viewState.longitude,
-              latitude: event.viewState.latitude,
-              zoom: event.viewState.zoom,
-              bearing: event.viewState.bearing,
-            }
-
-            const sameLongitude = Math.abs(previous.longitude - next.longitude) < 1e-7
-            const sameLatitude = Math.abs(previous.latitude - next.latitude) < 1e-7
-            const sameZoom = Math.abs(previous.zoom - next.zoom) < 1e-7
-            const sameBearing = Math.abs(previous.bearing - next.bearing) < 1e-7
-
-            return sameLongitude && sameLatitude && sameZoom && sameBearing ? previous : next
-          })
-          syncProjectionWithZoom(event.viewState.zoom)
-          updateGlobeSamplingAnchor(event.viewState)
-          updateBoundsFromMap()
         }}
+        onMoveEnd={(e) => syncProjectionWithZoom(e.viewState.zoom)}
         dragRotate={isGlobeProjection}
-        onClick={handleMapBackgroundClick}
         touchPitch={false}
         pitchWithRotate={false}
         maxPitch={0}
@@ -564,62 +218,22 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >
         <div className="flight-counter">
-          Flights: {isGlobeProjection ? renderedGlobeFlights.length : renderedMercatorFlights.length} / {flights.length}
+          Flights: {Math.min(flights.length, MAX_RENDERED_FLIGHTS)} / {flights.length}
         </div>
-        {isGlobeProjection
-          ? renderedGlobeFlights.map((flight) => (
-              <Marker
-                key={`${flight.id}`}
-                longitude={flight.longitude}
-                latitude={flight.latitude}
-                anchor="center"
-              >
-                <button
-                  type="button"
-                  className={`flight-marker-button${selectedFlight?.id === flight.id ? ' flight-marker-button--selected' : ''}`}
-                  aria-label={`Show details for ${flight.callsign || flight.id}`}
-                  onMouseEnter={(event) => {
-                    handleGlobeMarkerMouseEnter(flight, event.currentTarget, event.clientX, event.clientY)
-                  }}
-                  onMouseMove={(event) => {
-                    handleGlobeMarkerMouseMove(flight, event.currentTarget, event.clientX, event.clientY)
-                  }}
-                  onMouseLeave={() => {
-                    setHoveredFlightId(null)
-                    setHoveredIcaoTooltip(null)
-                  }}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    handleGlobeMarkerClick(flight)
-                  }}
-                >
-                  <img
-                    src={airplaneIcon}
-                    alt=""
-                    aria-hidden
-                    className={`flight-marker-icon${hoveredFlightId === flight.id ? ' flight-marker-icon--hovered' : ''}`}
-                    width={globeIconSize}
-                    height={globeIconSize}
-                    style={{
-                      width: `${globeIconSize}px`,
-                      height: `${globeIconSize}px`,
-                      transform: `rotate(${getFlightAngleGlobe(flight)}deg)`,
-                      transformOrigin: '50% 50%',
-                    }}
-                  />
-                </button>
-              </Marker>
-            ))
-          : <DeckGLOverlay layers={deckLayers} />}
         {hoveredIcaoTooltip ? (
           <div
             className="flight-icao-tooltip"
-            style={{ left: `${hoveredIcaoTooltip.x + 12}px`, top: `${hoveredIcaoTooltip.y - 28}px` }}
+            style={{
+              left: `${hoveredIcaoTooltip.x + 12}px`,
+              top: `${hoveredIcaoTooltip.y - 28}px`,
+            }}
           >
             {hoveredIcaoTooltip.text}
           </div>
         ) : null}
-        {selectedFlight ? <FlightInfoCard flight={selectedFlight} onClose={() => setSelectedFlightId(null)} /> : null}
+        {selectedFlight ? (
+          <FlightInfoCard flight={selectedFlight} onClose={() => setSelectedFlightId(null)} />
+        ) : null}
       </Map>
     </div>
   )

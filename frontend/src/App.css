@@ -174,39 +174,6 @@
   line-height: 1;
 }
 
-.flight-marker-button {
-  appearance: none;
-  -webkit-appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  height: auto;
-  border: none;
-  outline: none;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-  box-shadow: none;
-  border-radius: 0;
-}
-
-.flight-marker-icon {
-  display: block;
-  filter: brightness(0) saturate(100%) invert(45%) sepia(92%) saturate(3297%) hue-rotate(359deg) brightness(102%) contrast(105%);
-  transition: transform 140ms ease, filter 140ms ease;
-}
-
-.flight-marker-icon--hovered {
-  transform: scale(1.08);
-  filter: brightness(0) saturate(100%) invert(43%) sepia(53%) saturate(2894%) hue-rotate(239deg) brightness(105%) contrast(98%);
-}
-
-.flight-marker-button--selected .flight-marker-icon {
-  transform: scale(1.06);
-  filter: drop-shadow(0 0 6px rgba(168, 85, 247, 0.7)) brightness(0) saturate(100%) invert(43%) sepia(53%) saturate(2894%) hue-rotate(239deg) brightness(105%) contrast(98%);
-}
-
 .flight-icao-tooltip {
   position: absolute;
   z-index: 3;
