@@ -106,8 +106,10 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
 
     if (current !== target) {
       map.setProjection({ type: target })
-      if (target === 'mercator') map.easeTo({ bearing: 0, pitch: 0, duration: 0 })
+      if (target === 'mercator') map.easeTo({ bearing: 0, duration: 0 })
     }
+
+    map.setMaxPitch(target === 'mercator' ? 60 : 0)
 
     setProjectionType((prev) => (prev === target ? prev : target))
   }, [])
@@ -191,6 +193,13 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         map.on('click', LAYER_ID, handleLayerClick)
         map.on('mousemove', LAYER_ID, handleLayerHover)
         map.on('mouseleave', LAYER_ID, handleLayerLeave)
+
+        // Lock bearing to north in mercator — right-click drag changes pitch only.
+        map.on('rotate', () => {
+          if (normalizeProjection(map.getProjection()?.type) === 'mercator') {
+            map.setBearing(0)
+          }
+        })
       }
 
       syncProjectionWithZoom(INITIAL_ZOOM)
@@ -210,10 +219,8 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
           setHoveredIcaoTooltip(null)
         }}
         onMoveEnd={(e) => syncProjectionWithZoom(e.viewState.zoom)}
-        dragRotate={isGlobeProjection}
-        touchPitch={false}
-        pitchWithRotate={false}
-        maxPitch={0}
+        dragRotate
+        maxPitch={isGlobeProjection ? 0 : 60}
         style={{ width: '100vw', height: '100vh' }}
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >

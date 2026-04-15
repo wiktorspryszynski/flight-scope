@@ -1,8 +1,5 @@
 from opensky_api import OpenSkyApi
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 api = OpenSkyApi(
     os.getenv("OPENSKY_LOGIN"),

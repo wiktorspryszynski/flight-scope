@@ -1,7 +1,10 @@
 import asyncio
+from dotenv import load_dotenv, find_dotenv
 from fastapi import FastAPI, Query, WebSocket
 from fastapi import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+load_dotenv(find_dotenv())
 from .api.flights import router as flights_router
 from .api.flights import build_live_flights_payload
 
