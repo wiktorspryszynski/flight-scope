@@ -14,6 +14,7 @@ type ProjectionType = 'globe' | 'mercator'
 
 const INITIAL_ZOOM = 3
 const MERCATOR_ZOOM_THRESHOLD = 5
+const PITCH_RESET_ZOOM_THRESHOLD = 9
 const MAX_RENDERED_FLIGHTS = 6000
 const ICAO24_REGEX = /^[0-9a-f]{6}$/i
 const SOURCE_ID = 'flights'
@@ -61,6 +62,7 @@ const normalizeProjection = (type: unknown): ProjectionType =>
 function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
   const mapRef = useRef<MapRef | null>(null)
   const flightsRef = useRef(flights)
+  const prevZoomRef = useRef(INITIAL_ZOOM)
 
   const [projectionType, setProjectionType] = useState<ProjectionType>(
     INITIAL_ZOOM >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe',
@@ -107,6 +109,14 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
     if (current !== target) {
       map.setProjection({ type: target })
       if (target === 'mercator') map.easeTo({ bearing: 0, duration: 0 })
+      if (target === 'globe') map.easeTo({ bearing: 0, pitch: 0, duration: 300 })
+    }
+
+    // Reset pitch when zooming out past the threshold (only on the downward crossing).
+    const prevZoom = prevZoomRef.current
+    prevZoomRef.current = zoom
+    if (prevZoom >= PITCH_RESET_ZOOM_THRESHOLD && zoom < PITCH_RESET_ZOOM_THRESHOLD) {
+      map.easeTo({ pitch: 0, duration: 300 })
     }
 
     map.setMaxPitch(target === 'mercator' ? 60 : 0)
@@ -194,8 +204,8 @@ function FlightsMap({ maptilerKey, flights }: FlightsMapProps) {
         map.on('mousemove', LAYER_ID, handleLayerHover)
         map.on('mouseleave', LAYER_ID, handleLayerLeave)
 
-        // Lock bearing to north in mercator — right-click drag changes pitch only.
-        map.on('rotate', () => {
+        // Snap bearing back to north after each rotate gesture in mercator mode.
+        map.on('rotateend', () => {
           if (normalizeProjection(map.getProjection()?.type) === 'mercator') {
             map.setBearing(0)
           }
