@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from app.schemas.flight import Flight
 from ..services.opensky import get_live_flights_raw
 from ..services.heading import calculate_heading_from_previous_position
@@ -8,7 +8,10 @@ router = APIRouter()
 def build_live_flights_payload() -> list[Flight]:
     states = get_live_flights_raw()
 
-    if states is None or states.states is None:
+    if states is None:
+        raise HTTPException(status_code=503, detail="OpenSky API unavailable or credentials invalid")
+
+    if states.states is None:
         return []
 
     flights: list[Flight] = []

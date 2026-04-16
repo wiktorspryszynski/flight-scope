@@ -75,6 +75,12 @@ function App() {
           return
         }
 
+        if (second.length === 0 && first.length === 0) {
+          setError('No flights returned by the backend. Check OpenSky credentials or API availability.')
+          setIsLoading(false)
+          return
+        }
+
         // Start animating between the two snapshots, hide loading overlay
         setPrevFlights(first)
         setNextFlights(second)
