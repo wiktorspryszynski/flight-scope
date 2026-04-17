@@ -5,6 +5,16 @@ from ..services.heading import calculate_heading_from_previous_position
 
 router = APIRouter()
 
+STATE_FIELDS = [
+    "icao24", "callsign", "origin_country", "time_position", "last_contact",
+    "longitude", "latitude", "baro_altitude", "on_ground", "velocity",
+    "true_track", "vertical_rate", "sensors", "geo_altitude", "squawk",
+    "spi", "position_source",
+]
+
+def _parse_state(raw: list) -> dict:
+    return dict(zip(STATE_FIELDS, raw))
+
 def build_live_flights_payload() -> list[Flight]:
     data = get_live_flights_raw()
 
@@ -13,10 +23,11 @@ def build_live_flights_payload() -> list[Flight]:
 
     flights: list[Flight] = []
 
-    for state in data["states"]:
-        icao24     = state[0]
-        longitude  = state[5]
-        latitude   = state[6]
+    for raw in data["states"]:
+        state = _parse_state(raw)
+        icao24 = state["icao24"]
+        longitude = state["longitude"]
+        latitude = state["latitude"]
         computed_heading = calculate_heading_from_previous_position(
             icao24=icao24,
             latitude=latitude,
@@ -26,15 +37,15 @@ def build_live_flights_payload() -> list[Flight]:
         flights.append(
             Flight(
                 icao24=icao24,
-                callsign=state[1],
+                callsign=state["callsign"],
                 longitude=longitude,
                 latitude=latitude,
-                altitude=state[7],
-                velocity=state[9],
+                altitude=state["baro_altitude"],
+                velocity=state["velocity"],
                 heading=(
                     computed_heading
                     if computed_heading is not None
-                    else state[10]
+                    else state["true_track"]
                 ),
             )
         )
