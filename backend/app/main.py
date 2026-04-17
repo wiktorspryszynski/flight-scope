@@ -9,7 +9,6 @@ from .api.flights import router as flights_router
 from .api.flights import build_live_flights_payload
 
 app = FastAPI()
-app.include_router(flights_router, prefix="/flights")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,7 +18,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.websocket("/ws/flights")
+app.include_router(flights_router, prefix="/api/flights")
+
+@app.websocket("/api/ws/flights")
 async def websocket_endpoint(
     websocket: WebSocket,
     interval_ms: int = Query(default=10_000, ge=100),
