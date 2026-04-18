@@ -1,4 +1,5 @@
 import asyncio
+import os
 from dotenv import load_dotenv, find_dotenv
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi import WebSocketDisconnect
@@ -10,12 +11,15 @@ from .api.flights import build_live_flights_payload
 
 app = FastAPI()
 
+_frontend_port = os.getenv("FRONTEND_PORT", "5173")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://spryszynski.pl",
         "https://www.spryszynski.pl",
         "https://flights.spryszynski.pl",
+        f"http://localhost:{_frontend_port}",
     ],
     allow_credentials=False,
     allow_methods=["GET"],
