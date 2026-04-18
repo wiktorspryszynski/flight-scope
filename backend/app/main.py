@@ -9,17 +9,22 @@ from .api.flights import router as flights_router
 from .api.flights import build_live_flights_payload
 
 app = FastAPI()
-app.include_router(flights_router, prefix="/flights")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=[
+        "https://spryszynski.pl",
+        "https://www.spryszynski.pl",
+        "https://flights.spryszynski.pl",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
 
-@app.websocket("/ws/flights")
+app.include_router(flights_router, prefix="/api/flights")
+
+@app.websocket("/api/ws/flights")
 async def websocket_endpoint(
     websocket: WebSocket,
     interval_ms: int = Query(default=10_000, ge=100),
