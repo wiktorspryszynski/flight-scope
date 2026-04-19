@@ -30,7 +30,11 @@ function normalizeFlights(raw: unknown[]): Flight[] {
 
 async function fetchFlights(signal?: AbortSignal): Promise<Flight[]> {
   const res = await fetch(`${API_BASE_URL}/flights/live`, { signal })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    const detail = body?.detail ?? `${res.status} ${res.statusText}`
+    throw new Error(detail)
+  }
   const raw = await res.json()
   if (!Array.isArray(raw)) throw new Error('Invalid payload format')
   return normalizeFlights(raw)

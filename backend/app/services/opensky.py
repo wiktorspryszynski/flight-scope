@@ -1,14 +1,21 @@
 import requests
 import os
+from fastapi import HTTPException
 
 OPENSKY_URL = "https://opensky-network.org/api/states/all"
 
 def get_live_flights_raw():
     login = os.getenv("OPENSKY_LOGIN")
     password = os.getenv("OPENSKY_PASSWORD")
-    
+
     auth = (login, password) if login and password else None
-    
+    if auth is None:
+        import warnings
+        warnings.warn("OPENSKY_LOGIN/OPENSKY_PASSWORD not set — using anonymous access (stricter rate limits)")
+
     response = requests.get(OPENSKY_URL, auth=auth, timeout=10)
+    if response.status_code == 429:
+        raise HTTPException(status_code=503, detail="OpenSky rate limit exceeded, try again shortly")
+    
     response.raise_for_status()
     return response.json()
