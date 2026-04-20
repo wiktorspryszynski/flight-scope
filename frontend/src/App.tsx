@@ -8,7 +8,7 @@ import type { Flight } from './types/flight'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY
 
-const WS_INTERVAL_MS = 12_000
+const WS_INTERVAL_MS = 15_000
 const INITIAL_ANIMATION_DURATION = 2_000
 
 function normalizeFlights(raw: unknown[]): Flight[] {
