@@ -163,43 +163,49 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
     const map = mapRef.current?.getMap()
     if (!map) return
 
-    if (spectatedFlightId) {
-      // Add 3D buildings if not already present
-      if (!map.getLayer(BUILDINGS_LAYER_ID)) {
-        const sources = map.getStyle()?.sources ?? {}
-        const buildingSource = Object.keys(sources).find((k) => {
-          // MapTiler styles expose building data under 'openmaptiles' or similar vector source
-          const s = sources[k] as { type?: string }
-          return s.type === 'vector'
-        })
-        if (buildingSource) {
-          map.addLayer(
-            {
-              id: BUILDINGS_LAYER_ID,
-              type: 'fill-extrusion',
-              source: buildingSource,
-              'source-layer': 'building',
-              paint: {
-                'fill-extrusion-color': '#1a1f2e',
-                'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
-                'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
-                'fill-extrusion-opacity': 0.85,
-              },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } as any,
-            LAYER_ID, // insert below the flight icons
-          )
+    const applyLayers = () => {
+      if (spectatedFlightId) {
+        if (!map.getLayer(BUILDINGS_LAYER_ID)) {
+          const sources = map.getStyle()?.sources ?? {}
+          const buildingSource = Object.keys(sources).find((k) => {
+            // MapTiler styles expose building data under 'openmaptiles' or similar vector source
+            const s = sources[k] as { type?: string }
+            return s.type === 'vector'
+          })
+          if (buildingSource) {
+            map.addLayer(
+              {
+                id: BUILDINGS_LAYER_ID,
+                type: 'fill-extrusion',
+                source: buildingSource,
+                'source-layer': 'building',
+                paint: {
+                  'fill-extrusion-color': '#1a1f2e',
+                  'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
+                  'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
+                  'fill-extrusion-opacity': 0.85,
+                },
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              } as any,
+              LAYER_ID,
+            )
+          }
         }
+        if (!map.getLayer('plane-model')) {
+          map.addLayer(new PlaneModelLayer(spectatedPositionRef))
+        }
+      } else {
+        if (map.getLayer('plane-model')) map.removeLayer('plane-model')
+        if (map.getLayer(BUILDINGS_LAYER_ID)) map.removeLayer(BUILDINGS_LAYER_ID)
       }
-
-      // Add 3D plane model layer
-      if (!map.getLayer('plane-model')) {
-        map.addLayer(new PlaneModelLayer(spectatedPositionRef))
-      }
-    } else {
-      if (map.getLayer('plane-model')) map.removeLayer('plane-model')
-      if (map.getLayer(BUILDINGS_LAYER_ID)) map.removeLayer(BUILDINGS_LAYER_ID)
     }
+
+    if (map.isStyleLoaded()) {
+      applyLayers()
+    } else {
+      map.once('styledata', applyLayers)
+    }
+    return () => { map.off('styledata', applyLayers) }
   }, [spectatedFlightId])
 
   // ─── ESC to exit spectate ────────────────────────────────────────────────────

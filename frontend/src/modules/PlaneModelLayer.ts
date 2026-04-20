@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MaplibreMap } from 'maplibre-gl'
 import { MercatorCoordinate } from 'maplibre-gl'
 
@@ -13,8 +13,9 @@ const MODEL_URL = new URL('../assets/models/airbus_a319.glb', import.meta.url).h
 
 // Scale: MercatorCoordinate units per meter at the equator
 const METERS_PER_UNIT = MercatorCoordinate.fromLngLat([0, 0], 0).meterInMercatorCoordinateUnits()
-// Display the model at ~80 m wingspan scale
-const MODEL_SCALE = METERS_PER_UNIT * 80
+const MODEL_SCALE = METERS_PER_UNIT * 20
+// Altitude above ground in meters
+const DISPLAY_ALTITUDE_M = 800
 
 export class PlaneModelLayer implements CustomLayerInterface {
   readonly id = 'plane-model'
@@ -42,11 +43,11 @@ export class PlaneModelLayer implements CustomLayerInterface {
     const loader = new GLTFLoader()
     loader.load(
       MODEL_URL,
-      (gltf) => {
+      (gltf: GLTF) => {
         this.scene.add(gltf.scene)
       },
       undefined,
-      (err) => console.error('[PlaneModelLayer] failed to load GLB:', err),
+      (err: unknown) => console.error('[PlaneModelLayer] failed to load GLB:', err),
     )
   }
 
@@ -63,14 +64,13 @@ export class PlaneModelLayer implements CustomLayerInterface {
   render(_gl: WebGL2RenderingContext | WebGLRenderingContext, options: CustomRenderMethodInput): void {
     const { longitude, latitude, heading } = this.positionRef.current
 
-    // Convert geo position to Mercator coordinate at altitude 0
-    const mc = MercatorCoordinate.fromLngLat([longitude, latitude], 0)
+    const mc = MercatorCoordinate.fromLngLat([longitude, latitude], DISPLAY_ALTITUDE_M)
 
-    // Build transform: scale → rotate (heading) → translate to Mercator position
     const rotY = THREE.MathUtils.degToRad(heading)
     const transform = new THREE.Matrix4()
       .makeTranslation(mc.x, mc.y, mc.z ?? 0)
       .multiply(new THREE.Matrix4().makeRotationY(-rotY))
+      .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
       .multiply(new THREE.Matrix4().makeScale(MODEL_SCALE, -MODEL_SCALE, MODEL_SCALE))
 
     // Compose with MapLibre's projection matrix (mat4 → number[] via Array.from)
@@ -79,6 +79,6 @@ export class PlaneModelLayer implements CustomLayerInterface {
 
     this.renderer.resetState()
     this.renderer.render(this.scene, this.camera)
-    this.map.triggerRepaint()
+    if (this.map.isStyleLoaded()) this.map.triggerRepaint()
   }
 }

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv(find_dotenv())
 from .api.flights import router as flights_router
-from .api.flights import build_live_flights_payload
+from .api.flights import get_flights_payload
 
 app = FastAPI()
 
@@ -38,7 +38,7 @@ async def websocket_endpoint(
     try:
         while True:
             try:
-                payload = build_live_flights_payload()
+                payload = get_flights_payload()
             except HTTPException:
                 payload = []
             await websocket.send_json([flight.model_dump() for flight in payload])
