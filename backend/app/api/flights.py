@@ -28,6 +28,10 @@ def build_live_flights_payload() -> list[Flight]:
         icao24 = state["icao24"]
         longitude = state["longitude"]
         latitude = state["latitude"]
+        
+        if not latitude or not longitude:
+            continue
+        
         computed_heading = calculate_heading_from_previous_position(
             icao24=icao24,
             latitude=latitude,
