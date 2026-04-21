@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import type { GeoJSONSource, MapLayerMouseEvent } from 'maplibre-gl'
 import type { Flight } from '../types/flight'
 import FlightInfoCard from './FlightInfoCard'
-import { PlaneModelLayer, type AnimatedPosition } from './PlaneModelLayer'
+import { PlaneScenegraphLayer, type AnimatedPosition } from './PlaneScenegraphLayer'
 
 type FlightsMapProps = {
   maptilerKey: string
@@ -91,7 +91,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
   // rAF animation
   const animFrameRef = useRef<number>(0)
   const frameCountRef = useRef(0)
-  // Ref updated every tick so PlaneModelLayer always reads latest position
+  // Ref updated every tick so PlaneScenegraphLayer always reads latest position
   const spectatedPositionRef = useRef<AnimatedPosition>({ longitude: 0, latitude: 0, heading: 0 })
 
   const [projectionType, setProjectionType] = useState<ProjectionType>(
@@ -129,7 +129,6 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
           const interpolated = interpolateFlights(prevFlights, nextFlights, t)
           source.setData(buildGeoJson(interpolated))
 
-          // Keep spectated position ref in sync for PlaneModelLayer
           if (spectatedFlightId) {
             const sf = interpolated.find((f) => f.id === spectatedFlightId)
             if (sf) {
@@ -138,13 +137,6 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
                 latitude: sf.latitude,
                 heading: sf.heading ?? 0,
               }
-              // Lock camera to plane
-              map?.jumpTo({
-                center: [sf.longitude, sf.latitude],
-                zoom: 16,
-                pitch: 60,
-                bearing: sf.heading ?? 0,
-              })
             }
           }
         }
@@ -157,7 +149,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
     return () => cancelAnimationFrame(animFrameRef.current)
   }, [prevFlights, nextFlights, animationStartTime, animationDuration, spectatedFlightId])
 
-  // ─── Spectate mode: add/remove 3D model layer and buildings ─────────────────
+  // ─── Spectate mode: add/remove buildings layer ───────────────────────────────
 
   useEffect(() => {
     const map = mapRef.current?.getMap()
@@ -168,7 +160,6 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
         if (!map.getLayer(BUILDINGS_LAYER_ID)) {
           const sources = map.getStyle()?.sources ?? {}
           const buildingSource = Object.keys(sources).find((k) => {
-            // MapTiler styles expose building data under 'openmaptiles' or similar vector source
             const s = sources[k] as { type?: string }
             return s.type === 'vector'
           })
@@ -191,11 +182,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
             )
           }
         }
-        if (!map.getLayer('plane-model')) {
-          map.addLayer(new PlaneModelLayer(spectatedPositionRef))
-        }
       } else {
-        if (map.getLayer('plane-model')) map.removeLayer('plane-model')
         if (map.getLayer(BUILDINGS_LAYER_ID)) map.removeLayer(BUILDINGS_LAYER_ID)
       }
     }
@@ -378,7 +365,31 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
               setSelectedFlightId(null)
               setSpectatedFlightId(null)
             }}
-            onSpectate={(id) => setSpectatedFlightId((prev) => (prev === id ? null : id))}
+            onSpectate={(id) => {
+              const flight = nextFlights.find((f) => f.id === id)
+              if (flight) {
+                spectatedPositionRef.current = {
+                  longitude: flight.longitude,
+                  latitude: flight.latitude,
+                  heading: flight.heading ?? 0,
+                }
+              }
+              const next = spectatedFlightId === id ? null : id
+              if (next) {
+                syncProjectionWithZoom(13)
+                const map = mapRef.current?.getMap()
+                if (flight && map) {
+                  map.flyTo({
+                    center: [flight.longitude, flight.latitude],
+                    zoom: 13,
+                    pitch: 60,
+                    bearing: flight.heading ?? 0,
+                    duration: 2000,
+                  })
+                }
+              }
+              setSpectatedFlightId(next)
+            }}
           />
         ) : null}
         {spectatedFlight && spectatedFlightId ? (
@@ -391,6 +402,9 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
           </button>
         ) : null}
       </MapGL>
+      {spectatedFlightId ? (
+        <PlaneScenegraphLayer mapRef={mapRef} positionRef={spectatedPositionRef} />
+      ) : null}
     </div>
   )
 }

@@ -10,8 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.2.11",
     "@deck.gl/layers": "^9.2.11",
     "@deck.gl/mapbox": "^9.2.11",
+    "@deck.gl/mesh-layers": "^9.2.11",
+    "@loaders.gl/core": "~4.3.4",
+    "@loaders.gl/gltf": "~4.3.4",
     "maplibre-gl": "^5.20.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
