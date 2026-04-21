@@ -131,15 +131,9 @@
   font-size: 13px;
   line-height: 1.5;
   text-align: center;
-  overflow-x: auto;
-}
-
-.error-status__code code {
-  display: block;
-  text-align: center;
-  background: inherit;
-  color: inherit;
   font-family: Consolas, 'Courier New', monospace;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .flight-map-wrapper {
