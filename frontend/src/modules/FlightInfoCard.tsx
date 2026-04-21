@@ -2,13 +2,15 @@ import type { Flight } from '../types/flight'
 
 type FlightInfoCardProps = {
   flight: Flight
+  isSpectating: boolean
   onClose: () => void
+  onSpectate: (id: string) => void
 }
 
 const formatNumber = (value?: number, fractionDigits = 2) =>
   Number.isFinite(value) ? (value as number).toFixed(fractionDigits) : undefined
 
-function FlightInfoCard({ flight, onClose }: FlightInfoCardProps) {
+function FlightInfoCard({ flight, isSpectating, onClose, onSpectate }: FlightInfoCardProps) {
   return (
     <aside className="flight-info-card" role="dialog" aria-label="Flight details">
       <div className="flight-info-card__header">
@@ -43,11 +45,7 @@ function FlightInfoCard({ flight, onClose }: FlightInfoCardProps) {
                   <span
                     className="flight-info-card__heading-arrow"
                     title="Heading direction"
-                    style={{
-                      display: 'inline-block',
-                      transform: `rotate(${flight.heading}deg)`,
-                      transition: 'transform 0.2s',
-                    }}
+                    style={{ display: 'inline-block', transform: `rotate(${flight.heading}deg)`, transition: 'transform 0.2s' }}
                   >
                     ↑
                   </span>
@@ -57,21 +55,21 @@ function FlightInfoCard({ flight, onClose }: FlightInfoCardProps) {
         </div>
         <div className="flight-info-card__row">
           <dt>Altitude</dt>
-          <dd>
-            {Number.isFinite(flight.altitude)
-              ? <>{formatNumber(flight.altitude, 0)} m</>
-              : 'N/A'}
-          </dd>
+          <dd>{Number.isFinite(flight.altitude) ? <>{formatNumber(flight.altitude, 0)} m</> : 'N/A'}</dd>
         </div>
         <div className="flight-info-card__row">
           <dt>Velocity</dt>
-          <dd>
-            {Number.isFinite(flight.velocity)
-              ? <>{formatNumber(flight.velocity, 0)} m/s</>
-              : 'N/A'}
-          </dd>
+          <dd>{Number.isFinite(flight.velocity) ? <>{formatNumber(flight.velocity, 0)} m/s</> : 'N/A'}</dd>
         </div>
       </dl>
+
+      <button
+        type="button"
+        className={`flight-info-card__spectate${isSpectating ? ' flight-info-card__spectate--active' : ''}`}
+        onClick={() => onSpectate(flight.id)}
+      >
+        {isSpectating ? '✕ Stop spectating' : '◎ Spectate'}
+      </button>
     </aside>
   )
 }

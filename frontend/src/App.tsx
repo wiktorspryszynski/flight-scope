@@ -1,5 +1,5 @@
 import './App.css'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import FlightsMap from './modules/FlightsMap'
 import ErrorStatus from './modules/ErrorStatus'
 import LoadingStatus from './modules/LoadingStatus'
@@ -8,89 +8,140 @@ import type { Flight } from './types/flight'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY
 
+const WS_INTERVAL_MS = 15_000
+const INITIAL_ANIMATION_DURATION = 2_000
+
+function normalizeFlights(raw: unknown[]): Flight[] {
+  return raw
+    .map((item, index) => {
+      const it = item as Record<string, unknown>
+      return {
+        id: String(it.icao24 ?? it.id ?? `flight-${index}`),
+        callsign: String(it.callsign ?? ''),
+        longitude: Number(it.longitude),
+        latitude: Number(it.latitude),
+        heading: it.heading !== undefined ? Number(it.heading) : undefined,
+        altitude: it.altitude !== undefined ? Number(it.altitude) : undefined,
+        velocity: it.velocity !== undefined ? Number(it.velocity) : undefined,
+      }
+    })
+    .filter((f) => Number.isFinite(f.longitude) && Number.isFinite(f.latitude))
+}
+
+async function fetchFlights(signal?: AbortSignal): Promise<Flight[]> {
+  const res = await fetch(`${API_BASE_URL}/flights/live`, { signal })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    const detail = body?.detail ?? `${res.status} ${res.statusText}`
+    throw new Error(detail)
+  }
+  const raw = await res.json()
+  if (!Array.isArray(raw)) throw new Error('Invalid payload format')
+  return normalizeFlights(raw)
+}
+
 function App() {
-  const [flights, setFlights] = useState<Flight[]>([])
+  const [prevFlights, setPrevFlights] = useState<Flight[]>([])
+  const [nextFlights, setNextFlights] = useState<Flight[]>([])
+  const [animationStartTime, setAnimationStartTime] = useState(0)
+  const [animationDuration, setAnimationDuration] = useState(INITIAL_ANIMATION_DURATION)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
+    let timeoutId: ReturnType<typeof setTimeout>
 
-    const loadFlightsOnce = async () => {
-      const endpointUrl = `${API_BASE_URL}/flights/live`
-      console.log('[Flights API] fetching once from:', endpointUrl)
-      setError(null)
-      setIsLoading(true)
-
+    const init = async () => {
+      // Fetch 1 — populates Redis with initial positions; heading falls back to true_track
+      let first: Flight[]
       try {
-        const response = await fetch(endpointUrl, { signal: controller.signal })
-
-        if (!response.ok) {
-          console.error('[Flights API] request failed:', response.status, response.statusText)
-          setError(`Failed to fetch flights (${response.status} ${response.statusText})`)
-          return
-        }
-
-        const parsed = await response.json()
-        console.log('[Flights API] raw payload:', parsed)
-
-        if (!Array.isArray(parsed)) {
-          setError('Flights API returned an invalid payload format.')
-          return
-        }
-
-        const normalizedFlights: Flight[] = parsed
-          .map((item, index) => ({
-            id: String(item.icao24 ?? item.id ?? `flight-${index}`),
-            callsign: String(item.callsign ?? ''),
-            longitude: Number(item.longitude),
-            latitude: Number(item.latitude),
-            heading: item.heading !== undefined ? Number(item.heading) : undefined,
-            altitude: item.altitude !== undefined ? Number(item.altitude) : undefined,
-          }))
-          .filter((flight) => Number.isFinite(flight.longitude) && Number.isFinite(flight.latitude))
-
-        setFlights(normalizedFlights)
-        console.log('[Flights API] flights stored:', normalizedFlights.length)
-
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          console.log('[Flights API] fetch aborted during cleanup')
-          return
-        }
-        const errorString = `[Flights API] error while fetching flights: ${String(error)}`
-        console.error(errorString)
-        setError(errorString)
-      } finally {
+        first = await fetchFlights(controller.signal)
+        console.log('[Flights] fetch 1 complete:', first.length, 'flights')
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return
+        setError(`Failed to fetch flights: ${String(err)}`)
         setIsLoading(false)
+        return
       }
+
+      // Fetch 2 (2 s later) — Redis now has prev positions, computed bearing available
+      timeoutId = setTimeout(async () => {
+        let second: Flight[]
+        try {
+          second = await fetchFlights(controller.signal)
+          console.log('[Flights] fetch 2 complete:', second.length, 'flights')
+        } catch (err) {
+          if ((err as Error).name === 'AbortError') return
+          setError(`Failed to fetch flights: ${String(err)}`)
+          setIsLoading(false)
+          return
+        }
+
+        if (second.length === 0 && first.length === 0) {
+          setError('No flights returned by the backend. Check OpenSky credentials or API availability.')
+          setIsLoading(false)
+          return
+        }
+
+        // Start animating between the two snapshots, hide loading overlay
+        setPrevFlights(first)
+        setNextFlights(second)
+        setAnimationStartTime(Date.now())
+        setAnimationDuration(INITIAL_ANIMATION_DURATION)
+        setIsLoading(false)
+
+        // Open WebSocket — each message advances the animation window
+        const wsUrl = `${API_BASE_URL.replace(/^http/, 'ws')}/ws/flights?interval_ms=${WS_INTERVAL_MS}`
+        console.log('[WS] connecting to', wsUrl)
+        const ws = new WebSocket(wsUrl)
+        wsRef.current = ws
+
+        ws.onmessage = (event) => {
+          try {
+            const raw = JSON.parse(event.data as string)
+            if (!Array.isArray(raw)) return
+            const incoming = normalizeFlights(raw)
+            setNextFlights((current) => {
+              setPrevFlights(current)
+              return incoming
+            })
+            setAnimationStartTime(Date.now())
+            setAnimationDuration(WS_INTERVAL_MS)
+          } catch {
+            // malformed frame — ignore
+          }
+        }
+
+        ws.onerror = () => console.warn('[WS] connection error')
+        ws.onclose = () => console.log('[WS] closed')
+      }, INITIAL_ANIMATION_DURATION)
     }
 
-    void loadFlightsOnce()
+    void init()
 
     return () => {
       controller.abort()
+      clearTimeout(timeoutId)
+      wsRef.current?.close()
     }
   }, [])
 
-  if (!API_BASE_URL) {
-    return <ErrorStatus error="API base URL is missing. Please set VITE_API_BASE_URL in your environment variables." />
-  }
-
-  if (!MAPTILER_KEY) {
-    return <ErrorStatus error="MapTiler API key is missing. Please set VITE_MAPTILER_KEY in your environment variables." />
-  }
-
-  if (error) {
-    return <ErrorStatus error={error} />
-  }
-
-  const showLoadingOverlay = isLoading || flights.length === 0
+  if (!API_BASE_URL) return <ErrorStatus error="API base URL is missing. Please set VITE_API_BASE_URL." />
+  if (!MAPTILER_KEY) return <ErrorStatus error="MapTiler key is missing. Please set VITE_MAPTILER_KEY." />
+  if (error) return <ErrorStatus error={error} />
 
   return (
     <div className="map-shell">
-      <FlightsMap maptilerKey={MAPTILER_KEY} flights={flights} />
-      {showLoadingOverlay ? <LoadingStatus overlay /> : null}
+      <FlightsMap
+        maptilerKey={MAPTILER_KEY}
+        prevFlights={prevFlights}
+        nextFlights={nextFlights}
+        animationStartTime={animationStartTime}
+        animationDuration={animationDuration}
+      />
+      {isLoading ? <LoadingStatus overlay /> : null}
     </div>
   )
 }
