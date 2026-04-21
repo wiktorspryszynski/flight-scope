@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import MapGL, { type MapRef } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { LngLat } from 'maplibre-gl'
 import type { GeoJSONSource, MapLayerMouseEvent } from 'maplibre-gl'
 import type { Flight } from '../types/flight'
 import FlightInfoCard from './FlightInfoCard'
@@ -94,6 +95,8 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
   // Ref updated every tick so PlaneScenegraphLayer always reads latest position
   const spectatedPositionRef = useRef<AnimatedPosition>({ longitude: 0, latitude: 0, heading: 0 })
   const spectatedFlightIdRef = useRef<string | null>(null)
+
+  const camParamsRef = useRef({ camDist: 0.01, camAlt: 2500, camTargetAlt: 0 })
 
   const [projectionType, setProjectionType] = useState<ProjectionType>(
     INITIAL_ZOOM >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe',
@@ -331,6 +334,25 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(AIRPLANE_SVG)
   }, [handleLayerClick, handleLayerHover, handleLayerLeave, syncProjectionWithZoom])
 
+  // ─── Spectate camera helper ──────────────────────────────────────────────────
+
+  const applySpectateCameraFlyTo = useCallback(
+    (map: ReturnType<MapRef['getMap']>, lng: number, lat: number, heading: number, duration = 2000) => {
+      const { camDist, camAlt, camTargetAlt } = camParamsRef.current
+      const headingRad = (heading * Math.PI) / 180
+      const camLng = lng - camDist * Math.sin(headingRad)
+      const camLat = lat - camDist * Math.cos(headingRad)
+      const camOptions = map.calculateCameraOptionsFromTo(
+        new LngLat(camLng, camLat),
+        camAlt,
+        new LngLat(lng, lat),
+        camTargetAlt,
+      )
+      map.flyTo({ ...camOptions, duration })
+    },
+    [],
+  )
+
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -385,13 +407,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
                 syncProjectionWithZoom(13)
                 const map = mapRef.current?.getMap()
                 if (flight && map) {
-                  map.flyTo({
-                    center: [flight.longitude, flight.latitude],
-                    zoom: 13,
-                    pitch: 60,
-                    bearing: flight.heading ?? 0,
-                    duration: 2000,
-                  })
+                  applySpectateCameraFlyTo(map, flight.longitude, flight.latitude, flight.heading ?? 0)
                 }
               }
               setSpectatedFlightId(next)
