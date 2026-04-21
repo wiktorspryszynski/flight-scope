@@ -38,7 +38,7 @@ export function PlaneScenegraphLayer({ mapRef, positionRef }: Props) {
       const data: PlaneData[] = [
         {
           position: [longitude, latitude, DISPLAY_ALTITUDE_M],
-          orientation: [0, 0, heading - 90],
+          orientation: [0, 180 - heading, 90],
         },
       ]
       overlay.setProps({
