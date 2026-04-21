@@ -50,7 +50,7 @@ export function PlaneScenegraphLayer({ mapRef, positionRef }: Props) {
             getPosition: (d: PlaneData) => d.position,
             getOrientation: (d: PlaneData) => d.orientation,
             sizeScale: MODEL_SCALE,
-            _lighting: 'pbr',
+            _lighting: 'flat',
           }),
         ],
       })

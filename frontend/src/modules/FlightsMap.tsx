@@ -93,13 +93,18 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
   const frameCountRef = useRef(0)
   // Ref updated every tick so PlaneScenegraphLayer always reads latest position
   const spectatedPositionRef = useRef<AnimatedPosition>({ longitude: 0, latitude: 0, heading: 0 })
+  const spectatedFlightIdRef = useRef<string | null>(null)
 
   const [projectionType, setProjectionType] = useState<ProjectionType>(
     INITIAL_ZOOM >= MERCATOR_ZOOM_THRESHOLD ? 'mercator' : 'globe',
   )
   const [hoveredFlightId, setHoveredFlightId] = useState<string | null>(null)
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null)
-  const [spectatedFlightId, setSpectatedFlightId] = useState<string | null>(null)
+  const [spectatedFlightId, setSpectatedFlightIdState] = useState<string | null>(null)
+  const setSpectatedFlightId = (id: string | null) => {
+    spectatedFlightIdRef.current = id
+    setSpectatedFlightIdState(id)
+  }
   const [hoveredIcaoTooltip, setHoveredIcaoTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
 
   const isGlobeProjection = projectionType === 'globe'
@@ -312,8 +317,9 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
         map.on('mousemove', LAYER_ID, handleLayerHover)
         map.on('mouseleave', LAYER_ID, handleLayerLeave)
 
-        // Snap bearing to north on rotate end in mercator mode
+        // Snap bearing to north on rotate end in mercator mode (not while spectating)
         map.on('rotateend', () => {
+          if (spectatedFlightIdRef.current) return
           if (normalizeProjection(map.getProjection()?.type) === 'mercator') {
             map.setBearing(0)
           }
@@ -342,7 +348,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
           if (!spectatedFlightId) syncProjectionWithZoom(e.viewState.zoom)
         }}
         dragRotate
-        maxPitch={isGlobeProjection ? 0 : 60}
+        maxPitch={isGlobeProjection && !spectatedFlightId ? 0 : 60}
         style={{ width: '100vw', height: '100vh' }}
         mapStyle={`https://api.maptiler.com/maps/019cf841-2b2e-7f6c-8f95-1542cce14fc4/style.json?key=${maptilerKey}`}
       >
