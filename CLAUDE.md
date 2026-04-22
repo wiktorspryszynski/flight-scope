@@ -66,11 +66,14 @@ The map tile style comes from MapTiler. Projection is switched by calling `map.s
 ```
 App.tsx               — fetches flights once from REST, passes to FlightsMap
 modules/
-  FlightsMap.tsx      — map, projection switching, flight rendering, hover/select state
-  FlightInfoCard.tsx  — sidebar card shown when a flight is clicked
-  LoadingStatus.tsx   — overlay shown while loading
-  ErrorStatus.tsx     — full-page error display
-types/flight.ts       — shared Flight type (id, callsign, lat/lon, heading, altitude, velocity)
+  FlightsMap.tsx           — map, projection switching, flight rendering, hover/select state
+  FlightInfoCard.tsx       — sidebar card shown when a flight is clicked
+  PlaneScenegraphLayer.tsx — deck.gl ScenegraphLayer that renders a GLTF 3D airplane model
+                             (assets/models/airbus_a319.glb) for the selected flight via rAF loop
+  LoadingStatus.tsx        — overlay shown while loading
+  ErrorStatus.tsx          — full-page error display
+  Credits.tsx              — attribution overlay
+types/flight.ts            — shared Flight type (id, callsign, lat/lon, heading, altitude, velocity)
 ```
 
 ### Backend structure

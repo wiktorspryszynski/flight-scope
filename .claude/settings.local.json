@@ -4,7 +4,12 @@
       "Bash(npm run *)",
       "Bash(npm install *)",
       "Bash(node *)",
-      "Bash(npm info *)"
+      "Bash(npm info *)",
+      "mcp__obsidian__directory_tree",
+      "mcp__obsidian__list_allowed_directories",
+      "Bash(xargs grep *)",
+      "Bash(claude mcp *)",
+      "mcp__obsidian__list_directory"
     ]
   }
 }
