@@ -35,7 +35,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const wsUrl = `${API_BASE_URL.replace(/^http/, 'ws')}/ws/flights`
+    const wsUrl = `${API_BASE_URL.replace(/^http/, 'ws')}/api/ws/flights`
     console.log('[WS] connecting to', wsUrl)
     const ws = new WebSocket(wsUrl)
 
