@@ -28,7 +28,7 @@ docker compose up --build   # starts backend, frontend, postgres, redis
 ```
 
 Requires a `.env` file in the project root with:
-- `OPENSKY_LOGIN`, `OPENSKY_PASSWORD` — OpenSky Network credentials
+- `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` — OpenSky Network OAuth2 credentials
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 - `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB` — Redis connection (defaults: `redis`, `6379`, `0`)
 - `FLIGHT_POSITION_TTL_SECONDS` — per-aircraft heading cache TTL (default: `300`)
