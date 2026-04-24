@@ -2,7 +2,7 @@ declare module "react-map-gl" {
   import { ComponentType, CSSProperties, ReactNode } from "react";
 
   interface MapProps {
-    mapLib?: any;
+    mapLib?: unknown;
     initialViewState?: {
       longitude: number;
       latitude: number;
