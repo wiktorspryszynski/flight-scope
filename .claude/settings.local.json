@@ -9,7 +9,10 @@
       "mcp__obsidian__list_allowed_directories",
       "Bash(xargs grep *)",
       "Bash(claude mcp *)",
-      "mcp__obsidian__list_directory"
+      "mcp__obsidian__list_directory",
+      "mcp__obsidian__list_directory_with_sizes",
+      "mcp__obsidian__read_text_file",
+      "mcp__obsidian__write_file"
     ]
   }
 }

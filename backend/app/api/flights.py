@@ -1,8 +1,10 @@
+import asyncio
 import os
 from fastapi import APIRouter, HTTPException
 from app.schemas.flight import Flight
 from ..services.opensky import get_live_flights_raw
 from ..services.heading import calculate_heading_from_previous_position
+from ..services.cache import get_flights_cache
 
 router = APIRouter()
 
@@ -37,10 +39,10 @@ def build_live_flights_payload() -> list[Flight]:
         icao24 = state["icao24"]
         longitude = state["longitude"]
         latitude = state["latitude"]
-        
+
         if not latitude or not longitude:
             continue
-        
+
         computed_heading = calculate_heading_from_previous_position(
             icao24=icao24,
             latitude=latitude,
@@ -71,5 +73,8 @@ def get_flights_payload() -> list[Flight]:
     return build_live_flights_payload()
 
 @router.get("/live", response_model=list[Flight])
-def live_flights():
-    return get_flights_payload()
+async def live_flights():
+    cached = await asyncio.to_thread(get_flights_cache)
+    if cached is not None:
+        return [Flight(**f) for f in cached]
+    return await asyncio.to_thread(get_flights_payload)
