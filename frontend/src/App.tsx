@@ -33,11 +33,12 @@ function App() {
   const [animationStartTime, setAnimationStartTime] = useState(0)
   const [animationDuration, setAnimationDuration] = useState(WS_INTERVAL_MS)
   const [isLoading, setIsLoading] = useState(true)
+  const [wsError, setWsError] = useState<string | null>(null)
 
   useEffect(() => {
     const wsUrl = `${API_BASE_URL.replace(/^http/, 'ws')}/api/ws/flights`
-    console.log('[WS] connecting to', wsUrl)
     const ws = new WebSocket(wsUrl)
+    let hasReceivedData = false
 
     ws.onmessage = (event) => {
       try {
@@ -49,14 +50,17 @@ function App() {
         setNextFlights(next)
         setAnimationStartTime(Date.now())
         setAnimationDuration(WS_INTERVAL_MS)
+        hasReceivedData = true
         setIsLoading(false)
       } catch {
-        // malformed frame — ignore
+        setWsError('Received malformed data from server.')
       }
     }
 
-    ws.onerror = () => console.warn('[WS] connection error')
-    ws.onclose = () => console.log('[WS] closed')
+    ws.onerror = () => setWsError('Could not connect to the server.')
+    ws.onclose = () => {
+      if (!hasReceivedData) setWsError('Connection closed before receiving data.')
+    }
 
     return () => {
       ws.close()
@@ -65,6 +69,7 @@ function App() {
 
   if (!API_BASE_URL) return <ErrorStatus error="API base URL is missing. Please set VITE_API_BASE_URL." />
   if (!MAPTILER_KEY) return <ErrorStatus error="MapTiler key is missing. Please set VITE_MAPTILER_KEY." />
+  if (wsError) return <ErrorStatus error={wsError} />
 
   return (
     <div className="map-shell">
