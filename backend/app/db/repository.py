@@ -1,7 +1,10 @@
+import os
 from datetime import datetime, timezone
 from sqlalchemy import insert, text
 from .database import SessionLocal
 from ..models.flight_snapshot import FlightPosition, FlightSnapshot
+
+MAX_SNAPSHOTS = int(os.getenv("MAX_SNAPSHOTS", "5000"))
 
 
 def save_snapshot(flights_data: list[dict]) -> None:
@@ -32,6 +35,7 @@ def save_snapshot(flights_data: list[dict]) -> None:
 
 def downsample_old_snapshots() -> None:
     with SessionLocal() as session:
+        # For snapshots older than 24 hours, keep only one per 5-minute interval
         session.execute(
             text("""
                 DELETE FROM flight_snapshots
@@ -48,5 +52,18 @@ def downsample_old_snapshots() -> None:
                     WHERE rn > 1
                 )
             """)
+        )
+        
+        # If total snapshots still exceed MAX_SNAPSHOTS, delete the oldest ones
+        session.execute(
+            text("""
+                DELETE FROM flight_snapshots
+                WHERE id IN (
+                    SELECT id FROM flight_snapshots
+                    ORDER BY snapshot_time DESC
+                    OFFSET :max_snapshots
+                )
+            """),
+            {"max_snapshots": MAX_SNAPSHOTS},
         )
         session.commit()
