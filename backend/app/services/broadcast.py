@@ -13,7 +13,7 @@ class ConnectionManager:
     def disconnect(self, q: asyncio.Queue) -> None:
         self._queues.discard(q)
 
-    async def broadcast(self, payload: list[dict]) -> None:
+    async def broadcast(self, payload: dict | list[dict]) -> None:
         for q in list(self._queues):
             try:
                 q.put_nowait(payload)

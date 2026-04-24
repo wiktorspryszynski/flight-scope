@@ -9,8 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv(find_dotenv())
 from .api.flights import router as flights_router
 from .db.database import engine, Base
-from .models import flight_snapshot as _  # noqa: F401 — registers FlightSnapshot with Base metadata
+from .models import flight_snapshot as _  # noqa: F401 — registers FlightSnapshot + FlightPosition with Base metadata
 from .services.broadcast import manager
+from .services.cache import get_flights_cache, get_flights_prev_cache
 from .tasks.flight_fetcher import flight_fetcher_loop
 
 
@@ -49,6 +50,10 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     q = manager.connect()
     try:
+        latest = await asyncio.to_thread(get_flights_cache)
+        if latest is not None:
+            prev = await asyncio.to_thread(get_flights_prev_cache)
+            await websocket.send_json({"prev": prev if prev is not None else latest, "next": latest})
         while True:
             payload = await q.get()
             await websocket.send_json(payload)

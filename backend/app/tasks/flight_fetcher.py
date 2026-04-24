@@ -3,23 +3,33 @@ import logging
 
 from ..api.flights import get_flights_payload
 from ..services.broadcast import ConnectionManager
-from ..services.cache import set_flights_cache
-from ..db.repository import save_snapshot
+from ..services.cache import get_flights_cache, set_flights_cache
+from ..db.repository import downsample_old_snapshots, save_snapshot
 
 logger = logging.getLogger(__name__)
 
-FETCH_INTERVAL = 15
+FETCH_INTERVAL = 60
+DOWNSAMPLE_EVERY_N_CYCLES = 60  # once per hour
 
 
 async def flight_fetcher_loop(manager: ConnectionManager) -> None:
+    cycle = 0
     while True:
         try:
+            prev_data = await asyncio.to_thread(get_flights_cache)
             flights = await asyncio.to_thread(get_flights_payload)
             flights_data = [f.model_dump() for f in flights]
 
             await asyncio.to_thread(set_flights_cache, flights_data)
             await asyncio.to_thread(save_snapshot, flights_data)
-            await manager.broadcast(flights_data)
+
+            broadcast_prev = prev_data if prev_data is not None else flights_data
+            await manager.broadcast({"prev": broadcast_prev, "next": flights_data})
+
+            cycle += 1
+            if cycle % DOWNSAMPLE_EVERY_N_CYCLES == 0:
+                await asyncio.to_thread(downsample_old_snapshots)
+                logger.info("Downsampled old flight snapshots")
         except Exception:
             logger.exception("flight_fetcher_loop error")
 
