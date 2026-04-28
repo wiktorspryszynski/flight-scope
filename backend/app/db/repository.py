@@ -43,7 +43,8 @@ def downsample_old_snapshots() -> None:
                     SELECT id FROM (
                         SELECT id,
                                ROW_NUMBER() OVER (
-                                   PARTITION BY date_trunc('5 minutes', snapshot_time)
+                                   -- date_trunc doesn't accept '5 minutes'; round epoch to 300s boundary instead
+                                   PARTITION BY to_timestamp(floor(extract(epoch from snapshot_time) / 300) * 300)
                                    ORDER BY snapshot_time
                                ) AS rn
                         FROM flight_snapshots
