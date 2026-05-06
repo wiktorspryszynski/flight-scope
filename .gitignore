@@ -77,3 +77,4 @@ docker-compose.override.yml
 .DS_Store
 *.swp
 CLAUDE.local.md
+TODO.md

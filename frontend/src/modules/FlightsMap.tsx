@@ -95,6 +95,11 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
   // Ref updated every tick so PlaneScenegraphLayer always reads latest position
   const spectatedPositionRef = useRef<AnimatedPosition>({ longitude: 0, latitude: 0, heading: 0 })
   const spectatedFlightIdRef = useRef<string | null>(null)
+  // Tracks the last known position of the spectated flight so we can pan by delta each frame
+  const spectatedPrevLngLatRef = useRef<{ lng: number; lat: number } | null>(null)
+  // User-applied camera offset from the spectated flight (lng/lat degrees)
+  const spectateOffsetRef = useRef<{ dLng: number; dLat: number }>({ dLng: 0, dLat: 0 })
+  const isInteractingRef = useRef(false)
 
   const camParamsRef = useRef({ camDist: 0.01, camAlt: 2500, camTargetAlt: 0 })
 
@@ -106,6 +111,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
   const [spectatedFlightId, setSpectatedFlightIdState] = useState<string | null>(null)
   const setSpectatedFlightId = (id: string | null) => {
     spectatedFlightIdRef.current = id
+    if (!id) spectatedPrevLngLatRef.current = null
     setSpectatedFlightIdState(id)
   }
   const [hoveredIcaoTooltip, setHoveredIcaoTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
@@ -144,6 +150,18 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
                 longitude: sf.longitude,
                 latitude: sf.latitude,
                 heading: sf.heading ?? 0,
+              }
+              if (map) {
+                const prev = spectatedPrevLngLatRef.current
+                if (prev && !isInteractingRef.current) {
+                  map.jumpTo({
+                    center: [
+                      sf.longitude + spectateOffsetRef.current.dLng,
+                      sf.latitude + spectateOffsetRef.current.dLat,
+                    ],
+                  })
+                }
+                spectatedPrevLngLatRef.current = { lng: sf.longitude, lat: sf.latitude }
               }
             }
           }
@@ -334,6 +352,21 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(AIRPLANE_SVG)
   }, [handleLayerClick, handleLayerHover, handleLayerLeave, syncProjectionWithZoom])
 
+  // ─── Spectate interaction helper ─────────────────────────────────────────────
+
+  const syncSpectateOffset = useCallback(() => {
+    if (!spectatedFlightIdRef.current) return
+    const map = mapRef.current?.getMap()
+    const flight = spectatedPrevLngLatRef.current
+    if (map && flight) {
+      const center = map.getCenter()
+      spectateOffsetRef.current = {
+        dLng: center.lng - flight.lng,
+        dLat: center.lat - flight.lat,
+      }
+    }
+  }, [])
+
   // ─── Spectate camera helper ──────────────────────────────────────────────────
 
   const applySpectateCameraFlyTo = useCallback(
@@ -365,7 +398,13 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
         onDragStart={() => {
           setHoveredFlightId(null)
           setHoveredIcaoTooltip(null)
+          isInteractingRef.current = true
         }}
+        onDragEnd={() => { isInteractingRef.current = false; syncSpectateOffset() }}
+        onZoomStart={() => { isInteractingRef.current = true }}
+        onZoomEnd={() => { isInteractingRef.current = false; syncSpectateOffset() }}
+        onRotateStart={() => { isInteractingRef.current = true }}
+        onRotateEnd={() => { isInteractingRef.current = false; syncSpectateOffset() }}
         onMoveEnd={(e) => {
           if (!spectatedFlightId) syncProjectionWithZoom(e.viewState.zoom)
         }}
@@ -401,6 +440,8 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
                   latitude: flight.latitude,
                   heading: flight.heading ?? 0,
                 }
+                spectatedPrevLngLatRef.current = { lng: flight.longitude, lat: flight.latitude }
+                spectateOffsetRef.current = { dLng: 0, dLat: 0 }
               }
               const next = spectatedFlightId === id ? null : id
               if (next) {

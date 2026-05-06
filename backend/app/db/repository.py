@@ -68,3 +68,4 @@ def downsample_old_snapshots() -> None:
             {"max_snapshots": MAX_SNAPSHOTS},
         )
         session.commit()
+    
