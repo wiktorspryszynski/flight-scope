@@ -7,6 +7,8 @@ import type { Flight } from '../types/flight'
 import FlightInfoCard from './FlightInfoCard'
 import { PlaneScenegraphLayer, type AnimatedPosition } from './PlaneScenegraphLayer'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+
 type FlightsMapProps = {
   maptilerKey: string
   prevFlights: Flight[]
@@ -17,6 +19,8 @@ type FlightsMapProps = {
 
 type ProjectionType = 'globe' | 'mercator'
 
+type TrailPoint = { longitude: number; latitude: number }
+
 const INITIAL_ZOOM = 3
 const MERCATOR_ZOOM_THRESHOLD = 5
 const PITCH_RESET_ZOOM_THRESHOLD = 7
@@ -24,6 +28,8 @@ const MAX_RENDERED_FLIGHTS = 6000
 const ICAO24_REGEX = /^[0-9a-f]{6}$/i
 const SOURCE_ID = 'flights'
 const LAYER_ID = 'flights-icons'
+const TRAIL_SOURCE_ID = 'flight-trail'
+const TRAIL_LAYER_ID = 'flight-trail-layer'
 const BUILDINGS_LAYER_ID = 'buildings-3d'
 const ICON_NAME = 'airplane'
 const COLOR_DEFAULT = '#ff5a00'
@@ -31,6 +37,12 @@ const COLOR_ACTIVE = '#a855f7'
 
 // Top-down airplane silhouette pointing north (0°). White fill enables SDF colorization.
 const AIRPLANE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32"><path fill="white" d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`
+
+const EMPTY_LINE_GEOJSON = {
+  type: 'Feature' as const,
+  geometry: { type: 'LineString' as const, coordinates: [] as [number, number][] },
+  properties: {},
+}
 
 // ─── Interpolation helpers ────────────────────────────────────────────────────
 
@@ -115,6 +127,8 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
     setSpectatedFlightIdState(id)
   }
   const [hoveredIcaoTooltip, setHoveredIcaoTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
+  const [flightTrail, setFlightTrail] = useState<TrailPoint[]>([])
+  const flightTrailRef = useRef<TrailPoint[]>([])
 
   const isGlobeProjection = projectionType === 'globe'
 
@@ -125,6 +139,28 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
   const spectatedFlight = spectatedFlightId
     ? (nextFlights.find((f) => f.id === spectatedFlightId) ?? null)
     : null
+
+  // ─── Flight trail fetch ──────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!selectedFlightId) return
+
+    const controller = new AbortController()
+    fetch(`${API_BASE_URL}/api/flights/${selectedFlightId}/history?hours=6`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((data: TrailPoint[]) => setFlightTrail(data))
+      .catch(() => {})
+
+    return () => {
+      controller.abort()
+      setFlightTrail([])
+    }
+  }, [selectedFlightId])
+
+  // Keep ref in sync with trail state so the rAF loop can read it without a dependency
+  useEffect(() => {
+    flightTrailRef.current = flightTrail
+  }, [flightTrail])
 
   // ─── Animation loop ─────────────────────────────────────────────────────────
 
@@ -142,6 +178,20 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
         if (source) {
           const interpolated = interpolateFlights(prevFlights, nextFlights, t)
           source.setData(buildGeoJson(interpolated))
+
+          // Update trail: DB history + current animated position of selected flight
+          const trailSource = map?.getSource(TRAIL_SOURCE_ID) as GeoJSONSource | undefined
+          if (trailSource && selectedFlightId) {
+            const sf = interpolated.find((f) => f.id === selectedFlightId)
+            const dbPoints = flightTrailRef.current
+            if (sf && dbPoints.length > 0) {
+              const coords: [number, number][] = [
+                ...dbPoints.map((p): [number, number] => [p.longitude, p.latitude]),
+                [sf.longitude, sf.latitude],
+              ]
+              trailSource.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} })
+            }
+          }
 
           if (spectatedFlightId) {
             const sf = interpolated.find((f) => f.id === spectatedFlightId)
@@ -174,7 +224,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
 
     animFrameRef.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(animFrameRef.current)
-  }, [prevFlights, nextFlights, animationStartTime, animationDuration, spectatedFlightId])
+  }, [prevFlights, nextFlights, animationStartTime, animationDuration, spectatedFlightId, selectedFlightId])
 
   // ─── Spectate mode: add/remove buildings layer ───────────────────────────────
 
@@ -309,6 +359,23 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
     img.onload = () => {
       if (!map.hasImage(ICON_NAME)) {
         map.addImage(ICON_NAME, img, { sdf: true })
+      }
+
+      if (!map.getSource(TRAIL_SOURCE_ID)) {
+        map.addSource(TRAIL_SOURCE_ID, { type: 'geojson', data: EMPTY_LINE_GEOJSON })
+      }
+
+      if (!map.getLayer(TRAIL_LAYER_ID)) {
+        map.addLayer({
+          id: TRAIL_LAYER_ID,
+          type: 'line',
+          source: TRAIL_SOURCE_ID,
+          paint: {
+            'line-color': COLOR_ACTIVE,
+            'line-width': 2,
+            'line-opacity': 0.65,
+          },
+        })
       }
 
       if (!map.getSource(SOURCE_ID)) {

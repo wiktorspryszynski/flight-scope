@@ -2,16 +2,17 @@ import asyncio
 import os
 from contextlib import asynccontextmanager, suppress
 from dotenv import load_dotenv, find_dotenv
-from fastapi import FastAPI, WebSocket
-from fastapi import WebSocketDisconnect
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv(find_dotenv())
 from .api.flights import router as flights_router
+from .api.stats import router as stats_router
+from .api.aircraft import router as aircraft_router
+from .api.sse import router as sse_router
 from .db.database import engine, Base
-from .models import flight_snapshot as _  # noqa: F401 — registers FlightSnapshot + FlightPosition with Base metadata
+from .models import flight_snapshot as _  # noqa: F401 — registers ORM models with Base metadata
 from .services.broadcast import manager
-from .services.cache import get_flights_cache, get_flights_prev_cache
 from .tasks.flight_fetcher import flight_fetcher_loop
 
 
@@ -43,21 +44,6 @@ app.add_middleware(
 )
 
 app.include_router(flights_router, prefix="/api/flights")
-
-
-@app.websocket("/api/ws/flights")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    q = manager.connect()
-    try:
-        latest = await asyncio.to_thread(get_flights_cache)
-        if latest is not None:
-            prev = await asyncio.to_thread(get_flights_prev_cache)
-            await websocket.send_json({"prev": prev if prev is not None else latest, "next": latest})
-        while True:
-            payload = await q.get()
-            await websocket.send_json(payload)
-    except WebSocketDisconnect:
-        pass
-    finally:
-        manager.disconnect(q)
+app.include_router(aircraft_router, prefix="/api/flights")
+app.include_router(stats_router, prefix="/api")
+app.include_router(sse_router, prefix="/api")

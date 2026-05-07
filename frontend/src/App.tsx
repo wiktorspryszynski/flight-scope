@@ -8,7 +8,7 @@ import type { Flight } from './types/flight'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY
 
-const WS_INTERVAL_MS = 60_000
+const SSE_INTERVAL_MS = 60_000
 
 function normalizeFlights(raw: unknown[]): Flight[] {
   return raw
@@ -31,16 +31,16 @@ function App() {
   const [prevFlights, setPrevFlights] = useState<Flight[]>([])
   const [nextFlights, setNextFlights] = useState<Flight[]>([])
   const [animationStartTime, setAnimationStartTime] = useState(0)
-  const [animationDuration, setAnimationDuration] = useState(WS_INTERVAL_MS)
+  const [animationDuration, setAnimationDuration] = useState(SSE_INTERVAL_MS)
   const [isLoading, setIsLoading] = useState(true)
-  const [wsError, setWsError] = useState<string | null>(null)
+  const [sseError, setSseError] = useState<string | null>(null)
 
   useEffect(() => {
-    const wsUrl = `${API_BASE_URL.replace(/^http/, 'ws')}/api/ws/flights`
-    const ws = new WebSocket(wsUrl)
+    const sseUrl = `${API_BASE_URL}/api/sse/flights`
+    const es = new EventSource(sseUrl)
     let hasReceivedData = false
 
-    ws.onmessage = (event) => {
+    es.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data as string) as { prev: unknown[]; next: unknown[] }
         if (!msg.prev || !msg.next) return
@@ -49,27 +49,26 @@ function App() {
         setPrevFlights(prev)
         setNextFlights(next)
         setAnimationStartTime(Date.now())
-        setAnimationDuration(WS_INTERVAL_MS)
+        setAnimationDuration(SSE_INTERVAL_MS)
         hasReceivedData = true
         setIsLoading(false)
       } catch {
-        setWsError('Received malformed data from server.')
+        setSseError('Received malformed data from server.')
       }
     }
 
-    ws.onerror = () => setWsError('Could not connect to the server.')
-    ws.onclose = () => {
-      if (!hasReceivedData) setWsError('Connection closed before receiving data.')
+    es.onerror = () => {
+      if (!hasReceivedData) setSseError('Could not connect to the server.')
     }
 
     return () => {
-      ws.close()
+      es.close()
     }
   }, [])
 
   if (!API_BASE_URL) return <ErrorStatus error="API base URL is missing. Please set VITE_API_BASE_URL." />
   if (!MAPTILER_KEY) return <ErrorStatus error="MapTiler key is missing. Please set VITE_MAPTILER_KEY." />
-  if (wsError) return <ErrorStatus error={wsError} />
+  if (sseError) return <ErrorStatus error={sseError} />
 
   return (
     <div className="map-shell">

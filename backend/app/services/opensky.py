@@ -46,6 +46,16 @@ class TokenManager:
         return {"Authorization": f"Bearer {self.get_token()}"}
 
 
+def get_auth_headers() -> dict:
+    """Return Bearer auth headers if credentials are configured, else empty dict."""
+    global _token_manager
+    if not (os.getenv("OPENSKY_CLIENT_ID") and os.getenv("OPENSKY_CLIENT_SECRET")):
+        return {}
+    if _token_manager is None:
+        _token_manager = _build_token_manager()
+    return _token_manager.headers() if _token_manager else {}
+
+
 def _build_token_manager() -> TokenManager | None:
     client_id = os.getenv("OPENSKY_CLIENT_ID")
     client_secret = os.getenv("OPENSKY_CLIENT_SECRET")

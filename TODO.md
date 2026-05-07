@@ -2,9 +2,9 @@
 
 - [ ] Credits
 - [X] Spectate live 3d airplane
-- [ ] ML of flight data (most used paths / predictions / ?)
-- [ ] Rate limit
-- [ ] Better airplane info modal
-- [ ] Single airplane info API
-- [ ] Database size monitor (endpoint?, email?)
-- [ ] change websocket to SSE
+- [ ] ML of flight data — route clustering (DBSCAN on historical positions → corridor heatmap)
+- [ ] Rate limit (client-side)
+- [X] Better airplane info modal — metadata from OpenSky (registration, model, operator, built year)
+- [X] Single airplane info API — GET /api/flights/{icao24}/info + history trail
+- [X] Database size monitor — GET /api/stats (snapshot count, positions, DB size, 24 h health indicator)
+- [X] Change websocket to SSE — GET /api/sse/flights with keepalive

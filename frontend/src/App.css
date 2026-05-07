@@ -326,6 +326,173 @@
   font-weight: 800;
 }
 
+/* ─── FlightInfoCard metadata ────────────────────────────────────────────── */
+
+.flight-info-card__row--divider {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.flight-info-card__meta-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 2px;
+}
+
+.flight-info-card__skeleton {
+  display: block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.06) 25%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.06) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── DB Dashboard page ──────────────────────────────────────────────────── */
+
+.db-dashboard {
+  min-height: 100dvh;
+  background: #0d1117;
+  color: #ffffff;
+  padding: 32px 24px;
+  max-width: 720px;
+  margin: 0 auto;
+  font-family: inherit;
+}
+
+.db-dashboard__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.db-dashboard__eyebrow {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.db-dashboard__title {
+  margin: 4px 0 0;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.db-dashboard__refresh {
+  padding: 8px 14px;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  border-radius: 8px;
+  background: rgba(168, 85, 247, 0.1);
+  color: #f0e6ff;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms;
+}
+
+.db-dashboard__refresh:hover {
+  background: rgba(168, 85, 247, 0.22);
+}
+
+.db-dashboard__status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+
+.db-dashboard__status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.db-dashboard__status-label {
+  font-weight: 700;
+}
+
+.db-dashboard__status-sub {
+  color: rgba(255, 255, 255, 0.5);
+  margin-left: 4px;
+}
+
+.db-dashboard__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.db-dashboard__card {
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.db-dashboard__card--wide {
+  grid-column: 1 / -1;
+}
+
+.db-dashboard__card-label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.db-dashboard__card-value {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.db-dashboard__card-value--sm {
+  font-size: 15px;
+}
+
+.db-dashboard__card-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.db-dashboard__error {
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  font-size: 13px;
+}
+
+.db-dashboard__footer {
+  margin-top: 20px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
 @media (max-width: 900px) {
   .app-header {
     padding: 14px 14px 10px;

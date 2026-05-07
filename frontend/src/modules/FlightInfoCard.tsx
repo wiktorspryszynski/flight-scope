@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
 import type { Flight } from '../types/flight'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
 type FlightInfoCardProps = {
   flight: Flight
@@ -7,10 +10,36 @@ type FlightInfoCardProps = {
   onSpectate: (id: string) => void
 }
 
+type AircraftInfo = {
+  registration: string | null
+  manufacturer: string | null
+  model: string | null
+  typecode: string | null
+  operator: string | null
+  built: number | null
+}
+
 const formatNumber = (value?: number, fractionDigits = 2) =>
   Number.isFinite(value) ? (value as number).toFixed(fractionDigits) : undefined
 
 function FlightInfoCard({ flight, isSpectating, onClose, onSpectate }: FlightInfoCardProps) {
+  const [info, setInfo] = useState<AircraftInfo | null>(null)
+  const [infoLoading, setInfoLoading] = useState(true)
+
+  useEffect(() => {
+    setInfo(null)
+    setInfoLoading(true)
+    fetch(`${API_BASE_URL}/api/flights/${flight.id}/info`)
+      .then((r) => r.json())
+      .then((data: AircraftInfo) => {
+        setInfo(data)
+        setInfoLoading(false)
+      })
+      .catch(() => setInfoLoading(false))
+  }, [flight.id])
+
+  const hasMetadata = info && (info.registration || info.manufacturer || info.model || info.operator || info.built)
+
   return (
     <aside className="flight-info-card" role="dialog" aria-label="Flight details">
       <div className="flight-info-card__header">
@@ -61,6 +90,52 @@ function FlightInfoCard({ flight, isSpectating, onClose, onSpectate }: FlightInf
           <dt>Velocity</dt>
           <dd>{Number.isFinite(flight.velocity) ? <>{formatNumber(flight.velocity, 0)} m/s</> : 'N/A'}</dd>
         </div>
+
+        {infoLoading ? (
+          <div className="flight-info-card__meta-loading">
+            <span className="flight-info-card__skeleton" style={{ width: '60%' }} />
+            <span className="flight-info-card__skeleton" style={{ width: '80%' }} />
+          </div>
+        ) : hasMetadata ? (
+          <>
+            {info?.registration && (
+              <div className="flight-info-card__row flight-info-card__row--divider">
+                <dt>Registration</dt>
+                <dd>{info.registration}</dd>
+              </div>
+            )}
+            {info?.manufacturer && (
+              <div className="flight-info-card__row">
+                <dt>Manufacturer</dt>
+                <dd>{info.manufacturer}</dd>
+              </div>
+            )}
+            {info?.model && (
+              <div className="flight-info-card__row">
+                <dt>Model</dt>
+                <dd>{info.model}</dd>
+              </div>
+            )}
+            {info?.typecode && (
+              <div className="flight-info-card__row">
+                <dt>Type</dt>
+                <dd>{info.typecode}</dd>
+              </div>
+            )}
+            {info?.operator && (
+              <div className="flight-info-card__row">
+                <dt>Operator</dt>
+                <dd>{info.operator}</dd>
+              </div>
+            )}
+            {info?.built && (
+              <div className="flight-info-card__row">
+                <dt>Built</dt>
+                <dd>{info.built}</dd>
+              </div>
+            )}
+          </>
+        ) : null}
       </dl>
 
       <button
