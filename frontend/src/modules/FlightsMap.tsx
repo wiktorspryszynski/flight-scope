@@ -150,6 +150,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
                 longitude: sf.longitude,
                 latitude: sf.latitude,
                 heading: sf.heading ?? 0,
+                altitude: sf.altitude,
               }
               if (map) {
                 const prev = spectatedPrevLngLatRef.current
@@ -434,21 +435,26 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
             }}
             onSpectate={(id) => {
               const flight = nextFlights.find((f) => f.id === id)
-              if (flight) {
-                spectatedPositionRef.current = {
-                  longitude: flight.longitude,
-                  latitude: flight.latitude,
-                  heading: flight.heading ?? 0,
-                }
-                spectatedPrevLngLatRef.current = { lng: flight.longitude, lat: flight.latitude }
-                spectateOffsetRef.current = { dLng: 0, dLat: 0 }
-              }
               const next = spectatedFlightId === id ? null : id
-              if (next) {
-                syncProjectionWithZoom(13)
-                const map = mapRef.current?.getMap()
-                if (flight && map) {
-                  applySpectateCameraFlyTo(map, flight.longitude, flight.latitude, flight.heading ?? 0)
+              if (flight) {
+                const t = Math.min(1, (Date.now() - animationStartTime) / animationDuration)
+                const prev = prevFlights.find((f) => f.id === id)
+                const curLng = prev ? lerp(prev.longitude, flight.longitude, t) : flight.longitude
+                const curLat = prev ? lerp(prev.latitude, flight.latitude, t) : flight.latitude
+                const curHeading =
+                  prev && prev.heading !== undefined && flight.heading !== undefined
+                    ? lerpHeading(prev.heading, flight.heading, t)
+                    : (flight.heading ?? 0)
+                const curAlt = prev?.altitude != null && flight.altitude != null
+                  ? lerp(prev.altitude, flight.altitude, t)
+                  : (flight.altitude ?? prev?.altitude)
+                spectatedPositionRef.current = { longitude: curLng, latitude: curLat, heading: curHeading, altitude: curAlt }
+                spectatedPrevLngLatRef.current = { lng: curLng, lat: curLat }
+                spectateOffsetRef.current = { dLng: 0, dLat: 0 }
+                if (next) {
+                  syncProjectionWithZoom(13)
+                  const map = mapRef.current?.getMap()
+                  if (map) applySpectateCameraFlyTo(map, curLng, curLat, curHeading)
                 }
               }
               setSpectatedFlightId(next)

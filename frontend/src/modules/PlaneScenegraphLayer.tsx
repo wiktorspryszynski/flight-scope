@@ -5,9 +5,10 @@ import type { MapRef } from 'react-map-gl/maplibre'
 
 const MODEL_URL = new URL('../assets/models/airbus_a319.glb', import.meta.url).href
 
-export type AnimatedPosition = { longitude: number; latitude: number; heading: number }
+export type AnimatedPosition = { longitude: number; latitude: number; heading: number; altitude?: number }
 
-const DISPLAY_ALTITUDE_M = 800
+const MAX_DISPLAY_ALTITUDE_M = 800
+const CEILING_ALTITUDE_M = 10_000
 const MODEL_SCALE = 3
 
 type PlaneData = {
@@ -34,10 +35,14 @@ export function PlaneScenegraphLayer({ mapRef, positionRef }: Props) {
     let rafId: number
 
     const tick = () => {
-      const { longitude, latitude, heading } = positionRef.current
+      const { longitude, latitude, heading, altitude } = positionRef.current
+      const renderAlt =
+        altitude != null
+          ? Math.min(1, altitude / CEILING_ALTITUDE_M) * MAX_DISPLAY_ALTITUDE_M
+          : MAX_DISPLAY_ALTITUDE_M
       const data: PlaneData[] = [
         {
-          position: [longitude, latitude, DISPLAY_ALTITUDE_M],
+          position: [longitude, latitude, renderAlt],
           orientation: [0, 180 - heading, 90],
         },
       ]
