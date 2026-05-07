@@ -37,9 +37,9 @@ export function PlaneScenegraphLayer({ mapRef, positionRef }: Props) {
     const tick = () => {
       const { longitude, latitude, heading, altitude } = positionRef.current
       const renderAlt =
-        altitude != null
-          ? Math.min(1, altitude / CEILING_ALTITUDE_M) * MAX_DISPLAY_ALTITUDE_M
-          : MAX_DISPLAY_ALTITUDE_M
+        altitude != null && altitude > 0
+          ? 500 + Math.min(1, altitude / CEILING_ALTITUDE_M) * (MAX_DISPLAY_ALTITUDE_M - 500)
+          : (altitude === 0 ? 0 : MAX_DISPLAY_ALTITUDE_M)
       const data: PlaneData[] = [
         {
           position: [longitude, latitude, renderAlt],

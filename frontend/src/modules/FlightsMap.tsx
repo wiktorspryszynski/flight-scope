@@ -294,6 +294,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
     const map = mapRef.current?.getMap()
     if (!map) return
     if (map.queryRenderedFeatures(e.point, { layers: [LAYER_ID] }).length > 0) return
+    if (spectatedFlightIdRef.current) return
     setSelectedFlightId(null)
     setSpectatedFlightId(null)
     setHoveredFlightId(null)
@@ -371,8 +372,8 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
   // ─── Spectate camera helper ──────────────────────────────────────────────────
 
   const applySpectateCameraFlyTo = useCallback(
-    (map: ReturnType<MapRef['getMap']>, lng: number, lat: number, heading: number, duration = 2000) => {
-      const { camDist, camAlt, camTargetAlt } = camParamsRef.current
+    (map: ReturnType<MapRef['getMap']>, lng: number, lat: number, heading: number, targetAlt?: number, duration = 2000) => {
+      const { camDist, camAlt } = camParamsRef.current
       const headingRad = (heading * Math.PI) / 180
       const camLng = lng - camDist * Math.sin(headingRad)
       const camLat = lat - camDist * Math.cos(headingRad)
@@ -380,7 +381,7 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
         new LngLat(camLng, camLat),
         camAlt,
         new LngLat(lng, lat),
-        camTargetAlt,
+        targetAlt ?? camParamsRef.current.camTargetAlt,
       )
       map.flyTo({ ...camOptions, duration })
     },
@@ -406,6 +407,8 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
         onZoomEnd={() => { isInteractingRef.current = false; syncSpectateOffset() }}
         onRotateStart={() => { isInteractingRef.current = true }}
         onRotateEnd={() => { isInteractingRef.current = false; syncSpectateOffset() }}
+        onPitchStart={() => { isInteractingRef.current = true }}
+        onPitchEnd={() => { isInteractingRef.current = false }}
         onMoveEnd={(e) => {
           if (!spectatedFlightId) syncProjectionWithZoom(e.viewState.zoom)
         }}
@@ -454,7 +457,12 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
                 if (next) {
                   syncProjectionWithZoom(13)
                   const map = mapRef.current?.getMap()
-                  if (map) applySpectateCameraFlyTo(map, curLng, curLat, curHeading)
+                  if (map) {
+                  const renderAlt = curAlt != null
+                    ? Math.min(1, curAlt / 10_000) * 800
+                    : 800
+                  applySpectateCameraFlyTo(map, curLng, curLat, curHeading, renderAlt)
+                }
                 }
               }
               setSpectatedFlightId(next)
