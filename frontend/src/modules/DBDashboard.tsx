@@ -44,10 +44,10 @@ function DBDashboard() {
   const [lastFetched, setLastFetched] = useState<Date | null>(null)
 
   const load = () => {
-    setError(null)
     fetch(`${API_BASE_URL}/api/stats`)
       .then((r) => r.json())
       .then((data: DBStats) => {
+        setError(null)
         setStats(data)
         setLastFetched(new Date())
       })
@@ -56,7 +56,7 @@ function DBDashboard() {
 
   useEffect(() => {
     load()
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const health = stats ? healthLabel(stats.snapshots_last_24h, EXPECTED_SNAPSHOTS_24H) : null
 

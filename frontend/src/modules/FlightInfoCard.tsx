@@ -27,15 +27,14 @@ function FlightInfoCard({ flight, isSpectating, onClose, onSpectate }: FlightInf
   const [infoLoading, setInfoLoading] = useState(true)
 
   useEffect(() => {
-    setInfo(null)
-    setInfoLoading(true)
+    let cancelled = false
+    setInfo(null) // eslint-disable-line react-hooks/set-state-in-effect
+    setInfoLoading(true) // eslint-disable-line react-hooks/set-state-in-effect
     fetch(`${API_BASE_URL}/api/flights/${flight.id}/info`)
       .then((r) => r.json())
-      .then((data: AircraftInfo) => {
-        setInfo(data)
-        setInfoLoading(false)
-      })
-      .catch(() => setInfoLoading(false))
+      .then((data: AircraftInfo) => { if (!cancelled) { setInfo(data); setInfoLoading(false) } })
+      .catch(() => { if (!cancelled) setInfoLoading(false) })
+    return () => { cancelled = true }
   }, [flight.id])
 
   const hasMetadata = info && (info.registration || info.manufacturer || info.model || info.operator || info.built)
