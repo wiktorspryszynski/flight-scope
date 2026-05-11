@@ -4,7 +4,7 @@ import logging
 from ..api.flights import get_flights_payload
 from ..services.broadcast import ConnectionManager
 from ..services.cache import get_flights_cache, set_flights_cache
-from ..db.repository import downsample_old_snapshots, save_snapshot
+from ..db.repository import downsample_old_snapshots, get_latest_snapshot_flights, save_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,18 @@ async def flight_fetcher_loop(manager: ConnectionManager) -> None:
             prev_data = await asyncio.to_thread(get_flights_cache)
             flights = await asyncio.to_thread(get_flights_payload)
             flights_data = [f.model_dump() for f in flights]
+
+            if not flights_data:
+                db_fallback = await asyncio.to_thread(get_latest_snapshot_flights)
+                if db_fallback:
+                    logger.warning("OpenSky returned no data; serving last DB snapshot (%d flights)", len(db_fallback))
+                    await asyncio.to_thread(set_flights_cache, db_fallback)
+                    broadcast_prev = prev_data if prev_data is not None else db_fallback
+                    await manager.broadcast({"prev": broadcast_prev, "next": db_fallback, "stale": True})
+                else:
+                    logger.warning("OpenSky returned no data and DB has no snapshot; skipping broadcast")
+                await asyncio.sleep(FETCH_INTERVAL)
+                continue
 
             await asyncio.to_thread(set_flights_cache, flights_data)
             await asyncio.to_thread(save_snapshot, flights_data)

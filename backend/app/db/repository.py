@@ -33,6 +33,35 @@ def save_snapshot(flights_data: list[dict]) -> None:
         session.commit()
 
 
+def get_latest_snapshot_flights() -> list[dict]:
+    with SessionLocal() as session:
+        row = session.execute(
+            text("SELECT id FROM flight_snapshots ORDER BY snapshot_time DESC LIMIT 1")
+        ).fetchone()
+        if row is None:
+            return []
+        positions = session.execute(
+            text("""
+                SELECT icao24, callsign, latitude, longitude, heading, altitude, velocity
+                FROM flight_positions
+                WHERE snapshot_id = :sid
+            """),
+            {"sid": row.id},
+        ).fetchall()
+        return [
+            {
+                "icao24": p.icao24,
+                "callsign": p.callsign,
+                "latitude": p.latitude,
+                "longitude": p.longitude,
+                "heading": p.heading,
+                "altitude": p.altitude,
+                "velocity": p.velocity,
+            }
+            for p in positions
+        ]
+
+
 def downsample_old_snapshots() -> None:
     with SessionLocal() as session:
         # For snapshots older than 24 hours, keep only one per 5-minute interval

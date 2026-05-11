@@ -5,6 +5,7 @@ from app.schemas.flight import Flight
 from ..services.opensky import get_live_flights_raw
 from ..services.heading import calculate_heading_from_previous_position
 from ..services.cache import get_flights_cache
+from ..db.repository import get_latest_snapshot_flights
 
 router = APIRouter()
 
@@ -77,4 +78,10 @@ async def live_flights():
     cached = await asyncio.to_thread(get_flights_cache)
     if cached is not None:
         return [Flight(**f) for f in cached]
-    return await asyncio.to_thread(get_flights_payload)
+
+    flights = await asyncio.to_thread(get_flights_payload)
+    if flights:
+        return flights
+
+    db_flights = await asyncio.to_thread(get_latest_snapshot_flights)
+    return [Flight(**f) for f in db_flights]
