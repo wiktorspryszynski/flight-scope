@@ -16,7 +16,10 @@
       "Bash(mkdir -p C:/Users/nicko/Desktop/projekty/flight-scope/.github/workflows)",
       "Bash(mkdir -p C:/Users/nicko/Desktop/projekty/flight-scope/backend/tests)",
       "Bash(python -m pytest tests/ -v)",
-      "Bash(pip install *)"
+      "Bash(pip install *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\nicko\\\\Desktop\\\\projekty\\\\flight-scope\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(del *)"
     ]
   }
 }
