@@ -363,9 +363,7 @@
   min-height: 100dvh;
   background: #0d1117;
   color: #ffffff;
-  padding: 32px 24px;
-  max-width: 720px;
-  margin: 0 auto;
+  padding: 32px 40px;
   font-family: inherit;
 }
 
@@ -437,12 +435,12 @@
 
 .db-dashboard__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
 }
 
 .db-dashboard__card {
-  padding: 16px 18px;
+  padding: 20px 24px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
