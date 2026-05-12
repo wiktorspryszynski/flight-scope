@@ -33,6 +33,7 @@ function App() {
   const [animationStartTime, setAnimationStartTime] = useState(0)
   const [animationDuration, setAnimationDuration] = useState(SSE_INTERVAL_MS)
   const [isLoading, setIsLoading] = useState(true)
+  const [isStale, setIsStale] = useState(false)
   const [sseError, setSseError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -42,10 +43,13 @@ function App() {
 
     es.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data as string) as { prev: unknown[]; next: unknown[] }
+        const msg = JSON.parse(event.data as string) as { prev: unknown[]; next: unknown[]; stale?: boolean; noData?: boolean }
         if (!msg.prev || !msg.next) return
+        setIsStale(!!msg.stale)
         const prev = normalizeFlights(msg.prev)
         const next = normalizeFlights(msg.next)
+        const dataType = msg.noData ? 'none' : msg.stale ? 'stale' : 'live'
+        console.log(`[SSE] ${dataType} | prev=${prev.length} next=${next.length}`)
         setPrevFlights(prev)
         setNextFlights(next)
         setAnimationStartTime(Date.now())
@@ -58,11 +62,20 @@ function App() {
     }
 
     es.onerror = () => {
+      console.warn('[SSE] connection error', { hasReceivedData })
       if (!hasReceivedData) setSseError('Could not connect to the server.')
     }
 
+    const loadingTimeout = setTimeout(() => {
+      if (!hasReceivedData) {
+        console.warn('[SSE] loading timeout — no data received within 20 s')
+        setIsLoading(false)
+      }
+    }, 20_000)
+
     return () => {
       es.close()
+      clearTimeout(loadingTimeout)
     }
   }, [])
 
@@ -80,6 +93,9 @@ function App() {
         animationDuration={animationDuration}
       />
       {isLoading ? <LoadingStatus overlay /> : null}
+      {!isLoading && isStale ? (
+        <div className="stale-banner">Live feed unavailable — showing last known data</div>
+      ) : null}
     </div>
   )
 }

@@ -12,23 +12,30 @@ FETCH_INTERVAL = 60
 DOWNSAMPLE_EVERY_N_CYCLES = 60  # once per hour
 
 
+async def _broadcast_stale_or_empty(manager: ConnectionManager, prev_data: list | None) -> None:
+    db_fallback = await asyncio.to_thread(get_latest_snapshot_flights)
+    if db_fallback:
+        logger.warning("Serving last DB snapshot (%d flights) as stale data", len(db_fallback))
+        await asyncio.to_thread(set_flights_cache, db_fallback)
+        broadcast_prev = prev_data if prev_data is not None else db_fallback
+        await manager.broadcast({"prev": broadcast_prev, "next": db_fallback, "stale": True})
+    else:
+        logger.warning("No DB snapshot available; broadcasting empty")
+        await manager.broadcast({"prev": [], "next": [], "noData": True})
+
+
 async def flight_fetcher_loop(manager: ConnectionManager) -> None:
     cycle = 0
     while True:
+        prev_data = None
         try:
             prev_data = await asyncio.to_thread(get_flights_cache)
             flights = await asyncio.to_thread(get_flights_payload)
             flights_data = [f.model_dump() for f in flights]
 
             if not flights_data:
-                db_fallback = await asyncio.to_thread(get_latest_snapshot_flights)
-                if db_fallback:
-                    logger.warning("OpenSky returned no data; serving last DB snapshot (%d flights)", len(db_fallback))
-                    await asyncio.to_thread(set_flights_cache, db_fallback)
-                    broadcast_prev = prev_data if prev_data is not None else db_fallback
-                    await manager.broadcast({"prev": broadcast_prev, "next": db_fallback, "stale": True})
-                else:
-                    logger.warning("OpenSky returned no data and DB has no snapshot; skipping broadcast")
+                logger.warning("OpenSky returned no data; falling back to DB snapshot")
+                await _broadcast_stale_or_empty(manager, prev_data)
                 await asyncio.sleep(FETCH_INTERVAL)
                 continue
 
@@ -46,10 +53,12 @@ async def flight_fetcher_loop(manager: ConnectionManager) -> None:
             msg = str(e).lower()
             if "rate limit" in msg:
                 logger.warning("OpenSky rate limit hit, backing off 5 minutes")
+                await _broadcast_stale_or_empty(manager, prev_data)
                 await asyncio.sleep(300)
                 continue
             if "timeout" in msg or "connection" in msg:
                 logger.warning("OpenSky connectivity issue (%s), backing off 5 minutes", e)
+                await _broadcast_stale_or_empty(manager, prev_data)
                 await asyncio.sleep(300)
                 continue
             logger.exception("flight_fetcher_loop error")
