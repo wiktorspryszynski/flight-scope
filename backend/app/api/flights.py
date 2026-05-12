@@ -79,9 +79,12 @@ async def live_flights():
     if cached is not None:
         return [Flight(**f) for f in cached]
 
-    flights = await asyncio.to_thread(get_flights_payload)
-    if flights:
-        return flights
+    try:
+        flights = await asyncio.to_thread(get_flights_payload)
+        if flights:
+            return flights
+    except Exception:
+        pass
 
     db_flights = await asyncio.to_thread(get_latest_snapshot_flights)
     return [Flight(**f) for f in db_flights]

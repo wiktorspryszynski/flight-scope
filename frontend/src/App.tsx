@@ -9,6 +9,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY
 
 const SSE_INTERVAL_MS = 60_000
+const SSE_LOADING_TIMEOUT_MS = 15_000
 
 function normalizeFlights(raw: unknown[]): Flight[] {
   return raw
@@ -66,12 +67,23 @@ function App() {
       if (!hasReceivedData) setSseError('Could not connect to the server.')
     }
 
-    const loadingTimeout = setTimeout(() => {
-      if (!hasReceivedData) {
-        console.warn('[SSE] loading timeout — no data received within 20 s')
-        setIsLoading(false)
+    const loadingTimeout = setTimeout(async () => {
+      if (hasReceivedData) return
+      console.warn('[SSE] loading timeout — no data received within 20 s, fetching snapshot')
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/flights/live`)
+        const raw: unknown[] = await res.json()
+        const flights = normalizeFlights(raw)
+        console.log(`[SSE] snapshot fallback | flights=${flights.length}`)
+        setPrevFlights(flights)
+        setNextFlights(flights)
+        setAnimationStartTime(Date.now())
+        setIsStale(true)
+      } catch {
+        console.warn('[SSE] snapshot fallback failed')
       }
-    }, 20_000)
+      setIsLoading(false)
+    }, SSE_LOADING_TIMEOUT_MS)
 
     return () => {
       es.close()
@@ -94,7 +106,7 @@ function App() {
       />
       {isLoading ? <LoadingStatus overlay /> : null}
       {!isLoading && isStale ? (
-        <div className="stale-banner">Live feed unavailable — showing last known data</div>
+        <div className="stale-banner">Live feed unavailable - showing last known data</div>
       ) : null}
     </div>
   )
