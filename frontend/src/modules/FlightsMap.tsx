@@ -181,15 +181,19 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
 
           // Update trail: DB history + current animated position of selected flight
           const trailSource = map?.getSource(TRAIL_SOURCE_ID) as GeoJSONSource | undefined
-          if (trailSource && selectedFlightId) {
-            const sf = interpolated.find((f) => f.id === selectedFlightId)
-            const dbPoints = flightTrailRef.current
-            if (sf && dbPoints.length > 0) {
-              const coords: [number, number][] = [
-                ...dbPoints.map((p): [number, number] => [p.longitude, p.latitude]),
-                [sf.longitude, sf.latitude],
-              ]
-              trailSource.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} })
+          if (trailSource) {
+            if (selectedFlightId) {
+              const sf = interpolated.find((f) => f.id === selectedFlightId)
+              const dbPoints = flightTrailRef.current
+              if (sf && dbPoints.length > 0) {
+                const coords: [number, number][] = [
+                  ...dbPoints.map((p): [number, number] => [p.longitude, p.latitude]),
+                  [sf.longitude, sf.latitude],
+                ]
+                trailSource.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} })
+              }
+            } else {
+              trailSource.setData(EMPTY_LINE_GEOJSON)
             }
           }
 

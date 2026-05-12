@@ -43,8 +43,13 @@ async def flight_fetcher_loop(manager: ConnectionManager) -> None:
                 await asyncio.to_thread(downsample_old_snapshots)
                 logger.info("Downsampled old flight snapshots")
         except RuntimeError as e:
-            if "rate limit" in str(e).lower():
+            msg = str(e).lower()
+            if "rate limit" in msg:
                 logger.warning("OpenSky rate limit hit, backing off 5 minutes")
+                await asyncio.sleep(300)
+                continue
+            if "timeout" in msg or "connection" in msg:
+                logger.warning("OpenSky connectivity issue (%s), backing off 5 minutes", e)
                 await asyncio.sleep(300)
                 continue
             logger.exception("flight_fetcher_loop error")
