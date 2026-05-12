@@ -1,6 +1,8 @@
 import os
+import threading
 import requests
 from datetime import datetime, timedelta
+from requests.exceptions import ConnectTimeout, ConnectionError as RequestsConnectionError
 
 OPENSKY_URL = "https://opensky-network.org/api/states/all"
 _TOKEN_URL = (
@@ -16,11 +18,13 @@ class TokenManager:
         self._client_secret = client_secret
         self._token: str | None = None
         self._expires_at: datetime | None = None
+        self._lock = threading.Lock()
 
     def get_token(self) -> str:
-        if self._token and self._expires_at and datetime.now() < self._expires_at:
-            return self._token
-        return self._refresh()
+        with self._lock:
+            if self._token and self._expires_at and datetime.now() < self._expires_at:
+                return self._token
+            return self._refresh()
 
     def _refresh(self) -> str:
         r = requests.post(
@@ -75,16 +79,22 @@ _token_manager: TokenManager | None = None
 def get_live_flights_raw() -> dict:
     global _token_manager
 
-    if os.getenv("OPENSKY_CLIENT_ID") and os.getenv("OPENSKY_CLIENT_SECRET"):
-        if _token_manager is None:
-            _token_manager = _build_token_manager()
-        response = requests.get(
-            OPENSKY_URL,
-            headers=_token_manager.headers() if _token_manager else None,
-            timeout=10,
-        )
-    else:
-        response = requests.get(OPENSKY_URL, timeout=10)
+    try:
+        if os.getenv("OPENSKY_CLIENT_ID") and os.getenv("OPENSKY_CLIENT_SECRET"):
+            if _token_manager is None:
+                _token_manager = _build_token_manager()
+            response = requests.get(
+                OPENSKY_URL,
+                headers=_token_manager.headers() if _token_manager else None,
+                timeout=10,
+            )
+        else:
+            response = requests.get(OPENSKY_URL, timeout=10)
+    except ConnectTimeout:
+        raise RuntimeError("OpenSky connection timeout")
+    except RequestsConnectionError:
+        raise RuntimeError("OpenSky connection error")
+
     if response.status_code == 429:
         raise RuntimeError("OpenSky rate limit exceeded, try again shortly")
     response.raise_for_status()
