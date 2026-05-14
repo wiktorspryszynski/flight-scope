@@ -1,15 +1,17 @@
 import asyncio
 import logging
+import os
 
 from ..api.flights import get_flights_payload
 from ..services.broadcast import ConnectionManager
 from ..services.cache import get_flights_cache, set_flights_cache
+from ..services import rate_limit_tracker
 from ..db.repository import downsample_old_snapshots, get_latest_snapshot_flights, save_snapshot
 
 logger = logging.getLogger(__name__)
 
-FETCH_INTERVAL = 60
-DOWNSAMPLE_EVERY_N_CYCLES = 60  # once per hour
+FETCH_INTERVAL = int(os.getenv("VITE_FLIGHT_FETCH_INTERVAL_SECONDS", "120"))
+DOWNSAMPLE_EVERY_N_CYCLES = 3600 // FETCH_INTERVAL  # once per hour
 
 
 async def _broadcast_stale_or_empty(manager: ConnectionManager, prev_data: list | None) -> None:
@@ -52,6 +54,7 @@ async def flight_fetcher_loop(manager: ConnectionManager) -> None:
         except RuntimeError as e:
             msg = str(e).lower()
             if "rate limit" in msg:
+                rate_limit_tracker.record_hit()
                 logger.warning("OpenSky rate limit hit, backing off 5 minutes")
                 await _broadcast_stale_or_empty(manager, prev_data)
                 await asyncio.sleep(300)

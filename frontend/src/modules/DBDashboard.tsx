@@ -11,9 +11,11 @@ type DBStats = {
   oldest_snapshot: string | null
   newest_snapshot: string | null
   snapshots_last_24h: number
+  rate_limit_hits_24h: number
 }
 
-const EXPECTED_SNAPSHOTS_24H = 1440
+const FETCH_INTERVAL_SECONDS = Number(import.meta.env.VITE_FLIGHT_FETCH_INTERVAL_SECONDS) || 120
+const EXPECTED_SNAPSHOTS_24H = Math.round(86400 / FETCH_INTERVAL_SECONDS)
 
 function healthLabel(actual: number, expected: number): { color: string; label: string } {
   const ratio = actual / expected
@@ -101,6 +103,12 @@ function DBDashboard() {
             <div className="db-dashboard__card">
               <p className="db-dashboard__card-label">Positions table</p>
               <p className="db-dashboard__card-value">{stats.positions_table_size_pretty}</p>
+            </div>
+            <div className="db-dashboard__card" style={stats.rate_limit_hits_24h > 0 ? { borderColor: '#eab308' } : undefined}>
+              <p className="db-dashboard__card-label">Rate limit hits (24 h)</p>
+              <p className="db-dashboard__card-value" style={{ color: stats.rate_limit_hits_24h > 0 ? '#eab308' : '#22c55e' }}>
+                {stats.rate_limit_hits_24h}
+              </p>
             </div>
             <div className="db-dashboard__card db-dashboard__card--wide">
               <p className="db-dashboard__card-label">Data range</p>

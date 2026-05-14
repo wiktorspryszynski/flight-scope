@@ -1,14 +1,15 @@
 import './App.css'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import FlightsMap from './modules/FlightsMap'
 import ErrorStatus from './modules/ErrorStatus'
 import LoadingStatus from './modules/LoadingStatus'
+import HistoryPanel from './modules/HistoryPanel'
 import type { Flight } from './types/flight'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY
 
-const SSE_INTERVAL_MS = 60_000
+const SSE_INTERVAL_MS = (Number(import.meta.env.VITE_FLIGHT_FETCH_INTERVAL_SECONDS) || 120) * 1000
 const SSE_LOADING_TIMEOUT_MS = 15_000
 
 function normalizeFlights(raw: unknown[]): Flight[] {
@@ -28,6 +29,8 @@ function normalizeFlights(raw: unknown[]): Flight[] {
     .filter((f) => Number.isFinite(f.longitude) && Number.isFinite(f.latitude))
 }
 
+type HistoryInfo = { snapshot_time: string; is_downsampled: boolean }
+
 function App() {
   const [prevFlights, setPrevFlights] = useState<Flight[]>([])
   const [nextFlights, setNextFlights] = useState<Flight[]>([])
@@ -36,6 +39,44 @@ function App() {
   const [isLoading, setIsLoading] = useState(true)
   const [isStale, setIsStale] = useState(false)
   const [sseError, setSseError] = useState<string | null>(null)
+
+  const [historyTime, setHistoryTime] = useState<number | null>(null)
+  const [historyInfo, setHistoryInfo] = useState<HistoryInfo | null>(null)
+  const [dataRange, setDataRange] = useState<{ oldestMs: number; newestMs: number } | null>(null)
+  const historyAbortRef = useRef<AbortController | null>(null)
+  const historyTimeRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/stats`)
+      .then((r) => r.json())
+      .then((data: { oldest_snapshot: string | null; newest_snapshot: string | null }) => {
+        if (data.oldest_snapshot && data.newest_snapshot) {
+          setDataRange({
+            oldestMs: new Date(data.oldest_snapshot).getTime(),
+            newestMs: new Date(data.newest_snapshot).getTime(),
+          })
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    historyTimeRef.current = historyTime
+    if (historyTime === null) return
+    if (historyAbortRef.current) historyAbortRef.current.abort()
+    const ac = new AbortController()
+    historyAbortRef.current = ac
+    fetch(`${API_BASE_URL}/api/flights/at?t=${historyTime / 1000}`, { signal: ac.signal })
+      .then((r) => r.json())
+      .then((data: { flights: unknown[]; snapshot_time: string; is_downsampled: boolean }) => {
+        const flights = normalizeFlights(data.flights)
+        setPrevFlights(flights)
+        setNextFlights(flights)
+        setAnimationStartTime(Date.now())
+        setHistoryInfo({ snapshot_time: data.snapshot_time, is_downsampled: data.is_downsampled })
+      })
+      .catch((e) => { if (e.name !== 'AbortError') console.warn('[history]', e) })
+  }, [historyTime])
 
   useEffect(() => {
     const sseUrl = `${API_BASE_URL}/api/sse/flights`
@@ -46,6 +87,8 @@ function App() {
       try {
         const msg = JSON.parse(event.data as string) as { prev: unknown[]; next: unknown[]; stale?: boolean; noData?: boolean }
         if (!msg.prev || !msg.next) return
+        // Don't overwrite history view with live data
+        if (historyTimeRef.current !== null) return
         setIsStale(!!msg.stale)
         const prev = normalizeFlights(msg.prev)
         const next = normalizeFlights(msg.next)
@@ -105,9 +148,22 @@ function App() {
         animationDuration={animationDuration}
       />
       {isLoading ? <LoadingStatus overlay /> : null}
-      {!isLoading && isStale ? (
+      {!isLoading && isStale && historyTime === null ? (
         <div className="stale-banner">Live feed unavailable - showing last known data</div>
       ) : null}
+      {historyTime !== null && (
+        <div className="history-banner">HISTORY MODE</div>
+      )}
+      {dataRange && (
+        <HistoryPanel
+          oldestMs={dataRange.oldestMs}
+          newestMs={dataRange.newestMs}
+          historyTime={historyTime}
+          resolvedTime={historyTime !== null ? (historyInfo?.snapshot_time ?? null) : null}
+          isDownsampled={historyTime !== null ? (historyInfo?.is_downsampled ?? false) : false}
+          onTimeSelect={setHistoryTime}
+        />
+      )}
     </div>
   )
 }

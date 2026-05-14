@@ -10,10 +10,11 @@ type DBStats = {
   oldest_snapshot: string | null
   newest_snapshot: string | null
   snapshots_last_24h: number
+  rate_limit_hits_24h: number
 }
 
-// One snapshot per minute → ~1440/day
-const EXPECTED_SNAPSHOTS_24H = 1440
+const FETCH_INTERVAL_SECONDS = Number(import.meta.env.VITE_FLIGHT_FETCH_INTERVAL_SECONDS) || 120
+const EXPECTED_SNAPSHOTS_24H = Math.round(86400 / FETCH_INTERVAL_SECONDS)
 
 function healthDot(actual: number, expected: number): string {
   const ratio = actual / expected
@@ -77,6 +78,12 @@ function DBStatsPanel() {
                 <dt>Last 24 h</dt>
                 <dd style={{ color: healthDot(stats.snapshots_last_24h, EXPECTED_SNAPSHOTS_24H) }}>
                   {fmt(stats.snapshots_last_24h)} / {fmt(EXPECTED_SNAPSHOTS_24H)}
+                </dd>
+              </div>
+              <div className="db-stats-panel__row">
+                <dt>Rate limits (24 h)</dt>
+                <dd style={{ color: stats.rate_limit_hits_24h > 0 ? '#eab308' : '#22c55e' }}>
+                  {stats.rate_limit_hits_24h}
                 </dd>
               </div>
               {oldestDate && (
