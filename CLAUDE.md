@@ -99,15 +99,15 @@ types/flight.ts            — shared Flight type (id, callsign, lat/lon, headin
 
 ```
 backend/app/
-  main.py                    — FastAPI app, lifespan (starts fetcher task, creates DB tables), CORS, WebSocket endpoint
+  main.py                    — FastAPI app, lifespan (starts fetcher task, creates DB tables), CORS, SSE router
   tasks/
-    flight_fetcher.py        — background loop: fetch → Redis rotate → Postgres save → WS broadcast
+    flight_fetcher.py        — background loop: fetch → Redis rotate → Postgres save → SSE broadcast
   api/flights.py             — GET /live (Redis-first, API fallback) + build_live_flights_payload()
   models/
     flight_snapshot.py       — SQLAlchemy FlightSnapshot + FlightPosition ORM models
   schemas/flight.py          — Pydantic Flight model
   services/
-    opensky.py               — OpenSky API client (OPENSKY_LOGIN/PASSWORD from env)
+    opensky.py               — OpenSky API client (OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET OAuth2)
     heading.py               — Redis client + bearing calculation from successive positions
     cache.py                 — Redis get/set for flights:latest and flights:prev
     broadcast.py             — SSE ConnectionManager (asyncio.Queue per client, maxsize=2)
