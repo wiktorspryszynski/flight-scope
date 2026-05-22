@@ -34,6 +34,8 @@ Requires a `.env` file in the project root with:
 - `FLIGHT_POSITION_TTL_SECONDS` — per-aircraft heading cache TTL (default: `300`)
 - `VITE_API_BASE_URL` — frontend env var pointing to backend (e.g. `http://localhost:8000`)
 - `VITE_MAPTILER_KEY` — MapTiler API key for the map style
+- `VITE_FLIGHT_FETCH_INTERVAL_SECONDS` — fetch interval baked into the frontend bundle (default: `120`); controls SSE loading timeout and animation duration
+- `FLIGHT_FETCH_INTERVAL_SECONDS` — fetch interval used by the backend fetcher loop (default: `120`); set this to the same value as `VITE_FLIGHT_FETCH_INTERVAL_SECONDS`
 - `DEV_DUMMY_DATA` — set to `"true"` to use static dummy flights instead of OpenSky
 
 ## Architecture
@@ -46,11 +48,11 @@ This is a real-time flight tracker with a Python/FastAPI backend and a React/Typ
    - Fetches live aircraft state vectors from the OpenSky Network API (`backend/app/services/opensky.py`)
    - Rotates Redis cache: current `flights:latest` → `flights:prev`, then writes new data to `flights:latest` (TTL: 130 s)
    - Saves a full snapshot to PostgreSQL (`FlightSnapshot` + `FlightPosition` rows)
-   - Broadcasts `{"prev": [...], "next": [...]}` to all connected WebSocket clients
+   - Broadcasts `{"prev": [...], "next": [...]}` to all connected SSE clients
    - Every hour: downsamples PostgreSQL data older than 24 h to one snapshot per 5-minute window
 2. **Heading** is computed from per-aircraft position stored in Redis (`flights:last_position:{icao24}`, TTL: 300 s). Falls back to OpenSky `true_track` if no prior position exists (`backend/app/services/heading.py`).
 3. **`GET /api/flights/live`** reads from `flights:latest` in Redis; falls back to a live OpenSky call if the cache has expired.
-4. **`WS /api/ws/flights`** sends the initial `{prev, next}` state from Redis on connect, then streams each subsequent broadcast from the fetcher loop.
+4. **`GET /api/sse/flights`** (Server-Sent Events) sends the initial `{prev, next}` state from Redis on connect, then streams each subsequent broadcast from the fetcher loop. The frontend connects via the browser `EventSource` API.
 
 ### Frontend rendering strategy
 
@@ -108,7 +110,7 @@ backend/app/
     opensky.py               — OpenSky API client (OPENSKY_LOGIN/PASSWORD from env)
     heading.py               — Redis client + bearing calculation from successive positions
     cache.py                 — Redis get/set for flights:latest and flights:prev
-    broadcast.py             — WebSocket ConnectionManager (asyncio.Queue per client, maxsize=2)
+    broadcast.py             — SSE ConnectionManager (asyncio.Queue per client, maxsize=2)
     repository.py            — Postgres: save_snapshot(), downsample_old_snapshots()
     database.py              — SQLAlchemy engine + session setup
 ```

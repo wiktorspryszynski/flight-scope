@@ -85,10 +85,19 @@ class SnapshotResponse(BaseModel):
 
 def _flights_at(t: float) -> SnapshotResponse:
     with SessionLocal() as session:
+        # Use two bounded index-range queries (one on each side of :t) then pick
+        # the closer one, rather than a full table scan with ORDER BY ABS(...).
         snap = session.execute(
             text("""
-                SELECT id, snapshot_time
-                FROM flight_snapshots
+                SELECT id, snapshot_time FROM (
+                    (SELECT id, snapshot_time FROM flight_snapshots
+                     WHERE snapshot_time <= to_timestamp(:t)
+                     ORDER BY snapshot_time DESC LIMIT 1)
+                    UNION ALL
+                    (SELECT id, snapshot_time FROM flight_snapshots
+                     WHERE snapshot_time  > to_timestamp(:t)
+                     ORDER BY snapshot_time ASC  LIMIT 1)
+                ) candidates
                 ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_time) - :t)
                 LIMIT 1
             """),

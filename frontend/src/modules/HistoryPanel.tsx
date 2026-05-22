@@ -71,14 +71,14 @@ function HistoryPanel({ oldestMs, newestMs, historyTime, resolvedTime, isDownsam
 
   function handlePreset(def: PresetDef) {
     setActivePreset(def.label)
-    onTimeSelect(Math.max(def.getMs(), oldestMs))
+    onTimeSelect(Math.min(Math.max(def.getMs(), oldestMs), newestMs))
   }
 
   function applyCustom(date: string, hour: number, minute: number) {
     setActivePreset(null)
     const [y, m, d] = date.split('-').map(Number)
     const ts = new Date(y, m - 1, d, hour, minute, 0, 0).getTime()
-    onTimeSelect(Math.max(ts, oldestMs))
+    onTimeSelect(Math.min(Math.max(ts, oldestMs), newestMs))
   }
 
   function handleDateChange(v: string) {
