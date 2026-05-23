@@ -78,3 +78,4 @@ docker-compose.override.yml
 *.swp
 CLAUDE.local.md
 TODO.md
+.claude/
