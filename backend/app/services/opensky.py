@@ -4,6 +4,22 @@ import requests
 from datetime import datetime, timedelta
 from requests.exceptions import ConnectTimeout, ConnectionError as RequestsConnectionError
 
+
+class OpenSkyError(Exception):
+    """Base class for all OpenSky client errors."""
+
+
+class RateLimitError(OpenSkyError):
+    """Raised when OpenSky returns HTTP 429."""
+
+
+class OpenSkyTimeoutError(OpenSkyError):
+    """Raised when the request to OpenSky times out."""
+
+
+class OpenSkyConnectionError(OpenSkyError):
+    """Raised when a network-level connection error occurs."""
+
 OPENSKY_URL = "https://opensky-network.org/api/states/all"
 _TOKEN_URL = (
     "https://auth.opensky-network.org/auth/realms/opensky-network"
@@ -91,11 +107,11 @@ def get_live_flights_raw() -> dict:
         else:
             response = requests.get(OPENSKY_URL, timeout=10)
     except ConnectTimeout:
-        raise RuntimeError("OpenSky connection timeout")
+        raise OpenSkyTimeoutError("OpenSky connection timeout")
     except RequestsConnectionError:
-        raise RuntimeError("OpenSky connection error")
+        raise OpenSkyConnectionError("OpenSky connection error")
 
     if response.status_code == 429:
-        raise RuntimeError("OpenSky rate limit exceeded, try again shortly")
+        raise RateLimitError("OpenSky rate limit exceeded, try again shortly")
     response.raise_for_status()
     return response.json()

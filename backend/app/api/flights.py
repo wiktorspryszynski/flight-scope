@@ -1,11 +1,15 @@
 import asyncio
 import os
-from fastapi import APIRouter, HTTPException
+from datetime import datetime, timezone, timedelta
+from fastapi import APIRouter, Query
+from pydantic import BaseModel
+from sqlalchemy import text
 from app.schemas.flight import Flight
 from ..services.opensky import get_live_flights_raw
 from ..services.heading import calculate_heading_from_previous_position
 from ..services.cache import get_flights_cache
 from ..db.repository import get_latest_snapshot_flights
+from ..db.database import SessionLocal
 
 router = APIRouter()
 
@@ -73,15 +77,76 @@ def get_flights_payload() -> list[Flight]:
         return _DUMMY_FLIGHTS
     return build_live_flights_payload()
 
+class SnapshotResponse(BaseModel):
+    snapshot_time: datetime
+    is_downsampled: bool
+    flights: list[Flight]
+
+
+def _flights_at(t: float) -> SnapshotResponse:
+    with SessionLocal() as session:
+        # Use two bounded index-range queries (one on each side of :t) then pick
+        # the closer one, rather than a full table scan with ORDER BY ABS(...).
+        snap = session.execute(
+            text("""
+                SELECT id, snapshot_time FROM (
+                    (SELECT id, snapshot_time FROM flight_snapshots
+                     WHERE snapshot_time <= to_timestamp(:t)
+                     ORDER BY snapshot_time DESC LIMIT 1)
+                    UNION ALL
+                    (SELECT id, snapshot_time FROM flight_snapshots
+                     WHERE snapshot_time  > to_timestamp(:t)
+                     ORDER BY snapshot_time ASC  LIMIT 1)
+                ) candidates
+                ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_time) - :t)
+                LIMIT 1
+            """),
+            {"t": t},
+        ).mappings().fetchone()
+
+        if snap is None:
+            return SnapshotResponse(
+                snapshot_time=datetime.fromtimestamp(t, tz=timezone.utc),
+                is_downsampled=False,
+                flights=[],
+            )
+
+        positions = session.execute(
+            text("""
+                SELECT icao24, callsign, latitude, longitude, heading, altitude, velocity
+                FROM flight_positions
+                WHERE snapshot_id = :sid
+            """),
+            {"sid": snap["id"]},
+        ).mappings().fetchall()
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        is_downsampled = snap["snapshot_time"].replace(tzinfo=timezone.utc) < cutoff
+
+        return SnapshotResponse(
+            snapshot_time=snap["snapshot_time"],
+            is_downsampled=is_downsampled,
+            flights=[Flight(**p) for p in positions],
+        )
+
+
+@router.get("/at", response_model=SnapshotResponse)
+async def flights_at(t: float = Query(..., description="Unix timestamp")):
+    return await asyncio.to_thread(_flights_at, t)
+
+
 @router.get("/live", response_model=list[Flight])
 async def live_flights():
     cached = await asyncio.to_thread(get_flights_cache)
     if cached is not None:
         return [Flight(**f) for f in cached]
 
-    flights = await asyncio.to_thread(get_flights_payload)
-    if flights:
-        return flights
+    try:
+        flights = await asyncio.to_thread(get_flights_payload)
+        if flights:
+            return flights
+    except Exception:
+        pass
 
     db_flights = await asyncio.to_thread(get_latest_snapshot_flights)
     return [Flight(**f) for f in db_flights]

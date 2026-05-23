@@ -5,7 +5,9 @@ import './index.css'
 import App from './App.tsx'
 import DBDashboard from './modules/DBDashboard.tsx'
 
-console.log(`[flight-scope] DB dashboard: ${window.location.origin}/#/admin/db-stats`)
+if (import.meta.env.DEV) {
+  console.log(`[flight-scope] DB dashboard: ${window.location.origin}/admin/db-stats`)
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import text
 from ..db.database import SessionLocal
+from ..services import rate_limit_tracker
 
 router = APIRouter()
 
@@ -18,6 +19,7 @@ class DBStats(BaseModel):
     oldest_snapshot: Optional[datetime]
     newest_snapshot: Optional[datetime]
     snapshots_last_24h: int
+    rate_limit_hits_24h: int
 
 
 def _query_stats() -> DBStats:
@@ -34,7 +36,7 @@ def _query_stats() -> DBStats:
                 (SELECT COUNT(*) FROM flight_snapshots
                  WHERE snapshot_time > NOW() - INTERVAL '24 hours')::int               AS snapshots_last_24h
         """)).mappings().one()
-        return DBStats(**row)
+        return DBStats(**row, rate_limit_hits_24h=rate_limit_tracker.hits_in_last(24))
 
 
 @router.get("/stats", response_model=DBStats)

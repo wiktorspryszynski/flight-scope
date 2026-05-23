@@ -6,7 +6,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -21,8 +21,9 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
         VITE_MAPTILER_KEY: ${VITE_MAPTILER_KEY}
+        VITE_FLIGHT_FETCH_INTERVAL_SECONDS: ${VITE_FLIGHT_FETCH_INTERVAL_SECONDS:-120}
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     depends_on:
       - backend
 
@@ -35,10 +36,11 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL}
       VITE_MAPTILER_KEY: ${VITE_MAPTILER_KEY}
+      VITE_FLIGHT_FETCH_INTERVAL_SECONDS: ${VITE_FLIGHT_FETCH_INTERVAL_SECONDS:-120}
     depends_on:
       - backend
 
