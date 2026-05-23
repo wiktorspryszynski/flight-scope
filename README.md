@@ -61,7 +61,7 @@ graph TD
 
 ## Features
 
-- **Live aircraft positions** sourced from [OpenSky Network](https://opensky-network.org/) at 60-second intervals
+- **Live aircraft positions** sourced from [OpenSky Network](https://opensky-network.org/) at a configurable interval (default: 120 seconds, controlled by `FLIGHT_FETCH_INTERVAL_SECONDS`)
 - **Smooth interpolation** — frontend animates each plane between the previous and current position using `prev`/`next` payloads delivered over SSE
 - **Dual rendering modes**
   - Globe view (zoom < 5): DOM markers via `react-map-gl`, capped at ~520 planes with spatial grid sampling
