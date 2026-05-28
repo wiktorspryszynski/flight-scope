@@ -13,7 +13,7 @@ Real-time flight tracker that visualises live aircraft positions on an interacti
 
 <div align="center">
   <img src="docs/screenshot_1.png" alt="FlightScope screenshot 1" width="320" />
-  <img src="docs/screenshot_1.png" alt="FlightScope screenshot 2" width="320" />
+  <img src="docs/screenshot_2.png" alt="FlightScope screenshot 2" width="320" />
 </div>
 
 ---
