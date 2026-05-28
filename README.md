@@ -1,12 +1,20 @@
 # Flight Scope
 
+<div align="center">
+  <img src="frontend/public/airplane-icon.png" alt="FlightScope" width="96" />
+</div>
+
+
 Real-time flight tracker that visualises live aircraft positions on an interactive map, with smooth interpolated movement between polling cycles.
 
 **Live:** [flights.spryszynski.pl](https://flights.spryszynski.pl)
 
 ---
 
-![screenshot placeholder](docs/screenshot.png)
+<div align="center">
+  <img src="docs/screenshot_1.png" alt="FlightScope screenshot 1" width="320" />
+  <img src="docs/screenshot_1.png" alt="FlightScope screenshot 2" width="320" />
+</div>
 
 ---
 
