@@ -40,8 +40,8 @@ graph TD
     OpenSky["OpenSky Network API"]
 
     subgraph Backend ["Backend (FastAPI)"]
-        Fetcher["flight_fetcher loop\n(every 60s)"]
-        REST["GET /api/flights/live"]
+        Fetcher["flight_fetcher loop\n(every 120s)"]
+        REST["GET /api/flights/live\n(SSE fallback only)"]
         SSE["GET /api/sse/flights\n(Server-Sent Events)"]
     end
 
@@ -51,7 +51,7 @@ graph TD
     end
 
     subgraph Frontend ["Frontend (React + Vite)"]
-        App["App.tsx\ninitial REST fetch"]
+        App["App.tsx"]
         Map["FlightsMap.tsx\nMapLibre + deck.gl"]
         SSEClient["EventSource\nSSE client"]
     end
@@ -61,10 +61,11 @@ graph TD
     Fetcher -->|"save snapshot"| Postgres
     Fetcher -->|"broadcast prev+next"| SSE
     REST -->|"read"| Redis
-    App -->|"HTTP GET"| REST
+    App -->|"connect"| SSE
+    SSE -->|"initial snapshot from Redis\n+ ongoing broadcasts"| SSEClient
+    SSEClient -->|"20s timeout fallback"| REST
     App --> Map
     SSEClient -->|"stream updates"| Map
-    SSE --> SSEClient
 ```
 
 ---
@@ -159,7 +160,7 @@ The entire data path is I/O-bound: waiting on OpenSky's API, Redis reads, and SS
 
 ### Redis as the primary read path for `/api/flights/live`
 
-OpenSky enforces strict per-IP rate limits. A cache-aside pattern on the REST endpoint means every browser refresh doesn't count against the quota. The 130-second TTL on `flights:latest` is intentionally longer than the 60-second fetch interval — if the fetcher misses one cycle the endpoint still serves data rather than hitting OpenSky directly or returning an error.
+OpenSky enforces strict per-IP rate limits. A cache-aside pattern on the REST endpoint means every browser refresh doesn't count against the quota. The 130-second TTL on `flights:latest` is intentionally longer than the 120-second fetch interval — if the fetcher misses one cycle the endpoint still serves data rather than hitting OpenSky directly or returning an error.
 
 ### SSE over WebSockets for real-time updates
 
