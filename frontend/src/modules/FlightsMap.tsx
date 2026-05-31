@@ -74,6 +74,20 @@ function interpolateFlights(prev: Flight[], next: Flight[], t: number): Flight[]
   })
 }
 
+/** DB history ends at the latest snapshot (next); trim it while animating so the trail tip follows the icon. */
+function buildTrailCoords(
+  dbPoints: TrailPoint[],
+  animatedLng: number,
+  animatedLat: number,
+  t: number,
+): [number, number][] {
+  const history = t < 1 && dbPoints.length > 0 ? dbPoints.slice(0, -1) : dbPoints
+  return [
+    ...history.map((p): [number, number] => [p.longitude, p.latitude]),
+    [animatedLng, animatedLat],
+  ]
+}
+
 // ─── GeoJSON / MapLibre helpers ───────────────────────────────────────────────
 
 const buildGeoJson = (flights: Flight[]) => ({
@@ -170,55 +184,52 @@ function FlightsMap({ maptilerKey, prevFlights, nextFlights, animationStartTime,
     const tick = () => {
       const t = Math.min(1, (Date.now() - animationStartTime) / animationDuration)
       frameCountRef.current += 1
+      const map = mapRef.current?.getMap()
+      const interpolated = interpolateFlights(prevFlights, nextFlights, t)
 
-      // Throttle source update to ~30 fps (every other frame)
+      // Throttle icon source update to ~30 fps (every other frame)
       if (frameCountRef.current % 2 === 0) {
-        const map = mapRef.current?.getMap()
         const source = map?.getSource(SOURCE_ID) as GeoJSONSource | undefined
         if (source) {
-          const interpolated = interpolateFlights(prevFlights, nextFlights, t)
           source.setData(buildGeoJson(interpolated))
+        }
+      }
 
-          // Update trail: DB history + current animated position of selected flight
-          const trailSource = map?.getSource(TRAIL_SOURCE_ID) as GeoJSONSource | undefined
-          if (trailSource) {
-            if (selectedFlightId) {
-              const sf = interpolated.find((f) => f.id === selectedFlightId)
-              const dbPoints = flightTrailRef.current
-              if (sf && dbPoints.length > 0) {
-                const coords: [number, number][] = [
-                  ...dbPoints.map((p): [number, number] => [p.longitude, p.latitude]),
-                  [sf.longitude, sf.latitude],
-                ]
-                trailSource.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} })
-              }
-            } else {
-              trailSource.setData(EMPTY_LINE_GEOJSON)
-            }
+      // Trail tip follows the animated icon every frame
+      const trailSource = map?.getSource(TRAIL_SOURCE_ID) as GeoJSONSource | undefined
+      if (trailSource) {
+        if (selectedFlightId) {
+          const sf = interpolated.find((f) => f.id === selectedFlightId)
+          const dbPoints = flightTrailRef.current
+          if (sf && dbPoints.length > 0) {
+            const coords = buildTrailCoords(dbPoints, sf.longitude, sf.latitude, t)
+            trailSource.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} })
           }
+        } else {
+          trailSource.setData(EMPTY_LINE_GEOJSON)
+        }
+      }
 
-          if (spectatedFlightId) {
-            const sf = interpolated.find((f) => f.id === spectatedFlightId)
-            if (sf) {
-              spectatedPositionRef.current = {
-                longitude: sf.longitude,
-                latitude: sf.latitude,
-                heading: sf.heading ?? 0,
-                altitude: sf.altitude,
-              }
-              if (map) {
-                const prev = spectatedPrevLngLatRef.current
-                if (prev && !isInteractingRef.current) {
-                  map.jumpTo({
-                    center: [
-                      sf.longitude + spectateOffsetRef.current.dLng,
-                      sf.latitude + spectateOffsetRef.current.dLat,
-                    ],
-                  })
-                }
-                spectatedPrevLngLatRef.current = { lng: sf.longitude, lat: sf.latitude }
-              }
+      if (spectatedFlightId) {
+        const sf = interpolated.find((f) => f.id === spectatedFlightId)
+        if (sf) {
+          spectatedPositionRef.current = {
+            longitude: sf.longitude,
+            latitude: sf.latitude,
+            heading: sf.heading ?? 0,
+            altitude: sf.altitude,
+          }
+          if (map) {
+            const prev = spectatedPrevLngLatRef.current
+            if (prev && !isInteractingRef.current) {
+              map.jumpTo({
+                center: [
+                  sf.longitude + spectateOffsetRef.current.dLng,
+                  sf.latitude + spectateOffsetRef.current.dLat,
+                ],
+              })
             }
+            spectatedPrevLngLatRef.current = { lng: sf.longitude, lat: sf.latitude }
           }
         }
       }
