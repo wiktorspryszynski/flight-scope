@@ -43,6 +43,7 @@ function App() {
   const [historyTime, setHistoryTime] = useState<number | null>(null)
   const [historyInfo, setHistoryInfo] = useState<HistoryInfo | null>(null)
   const [dataRange, setDataRange] = useState<{ oldestMs: number; newestMs: number } | null>(null)
+  const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
   const historyAbortRef = useRef<AbortController | null>(null)
   const historyTimeRef = useRef<number | null>(null)
 
@@ -139,7 +140,7 @@ function App() {
   if (sseError) return <ErrorStatus error={sseError} />
 
   return (
-    <div className="map-shell">
+    <div className={`map-shell${historyPanelOpen ? ' map-shell--history-open' : ''}`}>
       <FlightsMap
         maptilerKey={MAPTILER_KEY}
         prevFlights={prevFlights}
@@ -162,6 +163,7 @@ function App() {
           resolvedTime={historyTime !== null ? (historyInfo?.snapshot_time ?? null) : null}
           isDownsampled={historyTime !== null ? (historyInfo?.is_downsampled ?? false) : false}
           onTimeSelect={setHistoryTime}
+          onOpenChange={setHistoryPanelOpen}
         />
       )}
     </div>

@@ -39,8 +39,16 @@ function FlightInfoCard({ flight, isSpectating, onClose, onSpectate }: FlightInf
 
   const hasMetadata = info && (info.registration || info.manufacturer || info.model || info.operator || info.built)
 
+  const altLabel = Number.isFinite(flight.altitude) ? `${formatNumber(flight.altitude, 0)} m`   : 'N/A'
+  const velLabel = Number.isFinite(flight.velocity) ? `${formatNumber(flight.velocity, 0)} m/s` : 'N/A'
+  const hdgLabel = Number.isFinite(flight.heading)  ? `${formatNumber(flight.heading, 0)}°`     : 'N/A'
+
   return (
-    <aside className="flight-info-card" role="dialog" aria-label="Flight details">
+    <aside
+      className={`flight-info-card${isSpectating ? ' flight-info-card--spectating' : ''}`}
+      role="dialog"
+      aria-label="Flight details"
+    >
       <div className="flight-info-card__header">
         <div>
           <p className="flight-info-card__label">Selected Flight</p>
@@ -50,6 +58,14 @@ function FlightInfoCard({ flight, isSpectating, onClose, onSpectate }: FlightInf
           ×
         </button>
       </div>
+
+      {isSpectating ? (
+        <div className="flight-info-card__spectate-summary">
+          <span>{altLabel}</span>
+          <span>{velLabel}</span>
+          <span>{hdgLabel}</span>
+        </div>
+      ) : null}
 
       <dl className="flight-info-card__list">
         <div className="flight-info-card__row">

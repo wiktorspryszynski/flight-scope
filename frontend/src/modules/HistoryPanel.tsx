@@ -7,6 +7,7 @@ interface Props {
   resolvedTime: string | null
   isDownsampled: boolean
   onTimeSelect: (t: number | null) => void
+  onOpenChange?: (open: boolean) => void
 }
 
 function startOfDayOffset(daysAgo: number): number {
@@ -57,7 +58,7 @@ function buildDayOptions(oldestMs: number, newestMs: number): { label: string; v
   return options
 }
 
-function HistoryPanel({ oldestMs, newestMs, historyTime, resolvedTime, isDownsampled, onTimeSelect }: Props) {
+function HistoryPanel({ oldestMs, newestMs, historyTime, resolvedTime, isDownsampled, onTimeSelect, onOpenChange }: Props) {
   const [open, setOpen] = useState(false)
   const [activePreset, setActivePreset] = useState<string | null>(null)
 
@@ -101,12 +102,20 @@ function HistoryPanel({ oldestMs, newestMs, historyTime, resolvedTime, isDownsam
 
   const isLive = historyTime === null
 
+  function toggleOpen() {
+    setOpen((o) => {
+      const next = !o
+      onOpenChange?.(next)
+      return next
+    })
+  }
+
   return (
     <div className={`history-panel${open ? ' history-panel--open' : ''}`}>
       <button
         type="button"
         className="history-panel__tab"
-        onClick={() => setOpen(o => !o)}
+        onClick={toggleOpen}
         title={open ? 'Close history panel' : 'Open history panel'}
       >
         {open ? '▶' : '◀'}
